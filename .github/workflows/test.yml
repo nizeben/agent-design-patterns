@@ -26,5 +26,7 @@ jobs:
         run: |
           python perception/a-context-triage/example.py
           python perception/b-semantic-compaction/example.py
+          python perception/c-progressive-discovery/example.py
+          python perception/d-multimodal-fusion/example.py
       - name: Run tests
         run: pytest -v

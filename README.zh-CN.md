@@ -41,7 +41,7 @@
 
 |  | **串行** | **并行** | **路由** | **循环** | **交接** | **层级** |
 |---|---|---|---|---|---|---|
-| **感知** | [语义压缩 ✅](./perception/b-semantic-compaction/) | [多模态融合 🟡](./perception/d-multimodal-fusion/) | [上下文分诊 ✅](./perception/a-context-triage/) | — | [渐进发现 🟡](./perception/c-progressive-discovery/) | — |
+| **感知** | [语义压缩 ✅](./perception/b-semantic-compaction/) | [多模态融合 ✅](./perception/d-multimodal-fusion/) | [上下文分诊 ✅](./perception/a-context-triage/) | — | [渐进发现 ✅](./perception/c-progressive-discovery/) | — |
 | **记忆** | [RAG 🟡](./memory/b-rag/) | — | [分层保留 🟡](./memory/a-hierarchical-retention/) | [失败日记 🟡](./memory/d-failure-journals/) | [进度追踪 🟡](./memory/c-progress-tracking/) | — |
 | **推理** | [思维链 🟡](./reasoning/a-chain-of-thought/) | [并行探索 🟡](./reasoning/c-parallel-exploration/) | [复杂度路由 🟡](./reasoning/b-complexity-routing/) | [迭代假设 🟡](./reasoning/d-iterative-hypothesis/) | — | — |
 | **行动** | [提示链 🟡](./action/c-prompt-chaining/) | — | [工具调度 🟡](./action/a-tool-dispatch/) | — | [规划执行 🟡](./action/b-plan-and-execute/) | [守卫三明治 🟡](./action/d-guardrail-sandwich/) |

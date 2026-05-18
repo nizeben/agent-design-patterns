@@ -58,7 +58,7 @@ scaffolding waiting for the lecture release.
 
 |  | **Chain** | **Parallel** | **Route** | **Loop** | **Orchestrate** | **Hierarchy** |
 |---|---|---|---|---|---|---|
-| **Perceive** | [Semantic Compaction ✅](./perception/b-semantic-compaction/) | [Multi-Modal Fusion 🟡](./perception/d-multimodal-fusion/) | [Context Triage ✅](./perception/a-context-triage/) | — | [Progressive Discovery 🟡](./perception/c-progressive-discovery/) | — |
+| **Perceive** | [Semantic Compaction ✅](./perception/b-semantic-compaction/) | [Multi-Modal Fusion ✅](./perception/d-multimodal-fusion/) | [Context Triage ✅](./perception/a-context-triage/) | — | [Progressive Discovery ✅](./perception/c-progressive-discovery/) | — |
 | **Remember** | [RAG 🟡](./memory/b-rag/) | — | [Hierarchical Retention 🟡](./memory/a-hierarchical-retention/) | [Failure Journals 🟡](./memory/d-failure-journals/) | [Progress Tracking 🟡](./memory/c-progress-tracking/) | — |
 | **Reason** | [Chain of Thought 🟡](./reasoning/a-chain-of-thought/) | [Parallel Exploration 🟡](./reasoning/c-parallel-exploration/) | [Complexity Routing 🟡](./reasoning/b-complexity-routing/) | [Iterative Hypothesis 🟡](./reasoning/d-iterative-hypothesis/) | — | — |
 | **Act** | [Prompt Chaining 🟡](./action/c-prompt-chaining/) | — | [Tool Dispatch 🟡](./action/a-tool-dispatch/) | — | [Plan & Execute 🟡](./action/b-plan-and-execute/) | [Guardrail Sandwich 🟡](./action/d-guardrail-sandwich/) |
