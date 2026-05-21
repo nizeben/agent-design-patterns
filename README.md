@@ -76,7 +76,8 @@ scaffolding waiting for the lecture release.
 **Composition** (putting patterns together):
 [Pattern Selection Card](./composition/a-pattern-selection-card/) ·
 [Six-Step Methodology](./composition/b-six-step-methodology/) ·
-[Argus Full Case Study](./composition/c-argus-full-case/)
+[Argus Full Case Study](./composition/c-argus-full-case/) ·
+[Checklist Benchmark Case](./composition/d-checklist-benchmark/)
 
 The 14 empty cells are not bugs. They mark either industry gaps not yet
 filled by any production harness, or topology-function combinations whose

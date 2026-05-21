@@ -1,0 +1,56 @@
+{
+  "case_name": "Anonymous Financial Product Disclosure Checklist Benchmark",
+  "source_document": {
+    "document_type": "financial product disclosure standard",
+    "public_text_included": false,
+    "anonymization": [
+      "specific regulator removed",
+      "jurisdiction removed",
+      "original document title removed",
+      "internal project context removed"
+    ]
+  },
+  "gold_rule_set": {
+    "rule_count": 12,
+    "description": "Eleven rules cover disclosure quality; one related rule covers target-segment suitability."
+  },
+  "benchmark": [
+    {
+      "pattern_id": "single_pass",
+      "pattern_label": "Reasoning x Chain",
+      "matched_over_gold": "6 / 12",
+      "predicted_rule_count": 16
+    },
+    {
+      "pattern_id": "critique_repair",
+      "pattern_label": "Reflection x Chain",
+      "matched_over_gold": "7 / 12",
+      "predicted_rule_count": 16
+    },
+    {
+      "pattern_id": "iterative_self_refine",
+      "pattern_label": "Reflection x Loop",
+      "matched_over_gold": "7 / 12",
+      "predicted_rule_count": 16
+    },
+    {
+      "pattern_id": "candidate_guided_review",
+      "pattern_label": "Governance x Route",
+      "matched_over_gold": "9 / 12",
+      "predicted_rule_count": 16
+    },
+    {
+      "pattern_id": "coverage_preserving_union_queue",
+      "pattern_label": "Composite: Parallel -> Route",
+      "matched_over_gold": "10 / 12",
+      "predicted_rule_count": 29
+    },
+    {
+      "pattern_id": "orchestrated_consensus_refine",
+      "pattern_label": "Composite: Parallel -> Route -> Loop",
+      "matched_over_gold": "8 / 12",
+      "predicted_rule_count": 16
+    }
+  ],
+  "design_conclusion": "Preserve a high-recall review queue before final checklist compression."
+}

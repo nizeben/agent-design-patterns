@@ -57,7 +57,8 @@
 **组合**（把模式组装起来）：
 [模式选型卡](./composition/a-pattern-selection-card/) ·
 [六步选型法](./composition/b-six-step-methodology/) ·
-[Argus 完整案例](./composition/c-argus-full-case/)
+[Argus 完整案例](./composition/c-argus-full-case/) ·
+[清单抽取基准案例](./composition/d-checklist-benchmark/)
 
 14 个空格子不是 bug。它们标的是**工业还没填上的空白**或**那种拓扑-功能组合下还没有结晶的模式**。是研究面，不是噪声。
 
