@@ -13,6 +13,16 @@
 
 ---
 
+## 配套新书
+
+<a href="https://www.manning.com/books/designing-ai-agents">
+  <img src="./docs/manning-book-card.png" alt="Designing AI Agents — Manning Publications, MEAP" width="420">
+</a>
+
+**[Designing AI Agents — Manning Publications](https://www.manning.com/books/designing-ai-agents)** · 黄佳 · MEAP 已开放 · ISBN 9781633433632
+
+---
+
 ## 框架来自一篇论文
 
 [![A Two-Dimensional Framework for AI Agent Design Patterns — arXiv:2605.13850](./docs/paper-card.png)](https://arxiv.org/abs/2605.13850)
@@ -161,7 +171,7 @@ pytest
 
 | | |
 |---|---|
-| **Manning** · *Designing AI Agents* | 英文技术书。28 个模式 × 7 认知功能 × 6 拓扑。ISBN 9781633433632，MEAP 2026 年 5 月。 |
+| **Manning** · *[Designing AI Agents](https://www.manning.com/books/designing-ai-agents)* | 英文技术书。28 个模式 × 7 认知功能 × 6 拓扑。ISBN 9781633433632，MEAP 已开放。 |
 | **极客时间** · *[《Agent 设计模式之美》](https://time.geekbang.org/)* | 中文视频专栏。模式逐讲讲透，配真实生产 harness 工程切片。 |
 | **Substack** · *[Agent Design Patterns](https://agentpatterns.substack.com)* | 免费英文 newsletter，1-2 周一篇。结构性观察，不写 hype。 |
 | **极客时间** · *[Claude Code 工程化实战](https://time.geekbang.org/)* | 已上线的中文视频专栏，讲 Claude Code 上做 agent 工程化。 |

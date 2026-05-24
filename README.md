@@ -15,6 +15,16 @@
 
 ---
 
+## The book
+
+<a href="https://www.manning.com/books/designing-ai-agents">
+  <img src="./docs/manning-book-card.png" alt="Designing AI Agents — Manning Publications, MEAP" width="420">
+</a>
+
+**[Designing AI Agents — Manning Publications](https://www.manning.com/books/designing-ai-agents)** · Jia Huang · MEAP open · ISBN 9781633433632
+
+---
+
 ## The framework comes from a paper
 
 [![A Two-Dimensional Framework for AI Agent Design Patterns — arXiv:2605.13850](./docs/paper-card.png)](https://arxiv.org/abs/2605.13850)
@@ -212,7 +222,7 @@ as a system rather than as a flat list.
 
 | | |
 |---|---|
-| **Manning** · *Designing AI Agents* | English-language technical book. 28 patterns across 7 cognitive functions and 6 topologies. ISBN 9781633433632. MEAP launch May 2026. |
+| **Manning** · *[Designing AI Agents](https://www.manning.com/books/designing-ai-agents)* | English-language technical book. 28 patterns across 7 cognitive functions and 6 topologies. ISBN 9781633433632. MEAP open. |
 | **极客时间** · *[《Agent 设计模式之美》](https://time.geekbang.org/)* | Chinese-language video column. Pattern-by-pattern walkthrough with engineering slices from real production harnesses. |
 | **Substack** · *[Agent Design Patterns](https://agentpatterns.substack.com)* | Free English newsletter, one essay every 1–2 weeks. Structural observation, not hype. |
 | **极客时间** · *[Claude Code 工程化实战](https://time.geekbang.org/)* | Published Chinese-language video column on the engineering practice of building agents on Claude Code. |
