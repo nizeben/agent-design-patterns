@@ -4,7 +4,9 @@
 
 *The model spends. The harness budgets. This repo is the vocabulary you can put in your project tomorrow.*
 
-[简体中文 README](README.zh-CN.md) · [**Manning · *Designing AI Agents***](https://hubs.la/Q04hCsH10) · [Paper · arXiv:2605.13850](https://arxiv.org/abs/2605.13850) · [极客时间专栏](https://time.geekbang.org/) · [Newsletter](https://agentpatterns.substack.com) · [Author site](https://kage-ai.com)
+[简体中文 README](README.zh-CN.md) · [**Pattern Docs**](https://adpsagent.com/zh/patterns/) · [**Manning · *Designing AI Agents***](https://hubs.la/Q04hCsH10) · [Paper · arXiv:2605.13850](https://arxiv.org/abs/2605.13850) · [极客时间专栏](https://time.geekbang.org/) · [Newsletter](https://agentpatterns.substack.com) · [Author site](https://kage-ai.com)
+
+> **📖 Browse the full pattern documentation** — every pattern with its whitepaper, organized by cognitive function, with a left-rail index: **[adpsagent.com/zh/patterns](https://adpsagent.com/zh/patterns/)**. Enterprise case studies (蓝皮书) live at [adpsagent.com/zh/cases](https://adpsagent.com/zh/cases/).
 
 > **Looking for the full Argus running example as one evolving
 > codebase, organized by book chapter?** See the companion repo

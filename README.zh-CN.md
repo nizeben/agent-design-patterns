@@ -4,7 +4,9 @@
 
 *模型负责花，Harness 负责管账。这个仓库是你明天就能用进项目里的设计语言。*
 
-[English README](README.md) · [**Manning · *Designing AI Agents***](https://hubs.la/Q04hCsH10) · [论文 · arXiv:2605.13850](https://arxiv.org/abs/2605.13850) · [极客时间专栏](https://time.geekbang.org/) · [Substack Newsletter](https://agentpatterns.substack.com) · [作者主页](https://kage-ai.com)
+[English README](README.md) · [**模式文档**](https://adpsagent.com/zh/patterns/) · [**Manning · *Designing AI Agents***](https://hubs.la/Q04hCsH10) · [论文 · arXiv:2605.13850](https://arxiv.org/abs/2605.13850) · [极客时间专栏](https://time.geekbang.org/) · [Substack Newsletter](https://agentpatterns.substack.com) · [作者主页](https://kage-ai.com)
+
+> **📖 完整模式文档** —— 每个模式一页白皮书，按认知功能组织，左栏全量导航：**[adpsagent.com/zh/patterns](https://adpsagent.com/zh/patterns/)**。企业落地实践（蓝皮书）在 [adpsagent.com/zh/cases](https://adpsagent.com/zh/cases/)。
 
 > **想看完整 Argus running example 作为一个一章一章长出来的代码库？**
 > 配套仓库在 [**huangjia2019/designing-ai-agents**](https://github.com/huangjia2019/designing-ai-agents)
