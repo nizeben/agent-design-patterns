@@ -29,6 +29,7 @@ langgraph = [
   "langchain-oceanbase>=0.5.1",
   "langchain-dev-utils>=1.4.6",
   "python-dotenv>=1.0",
+  "grandalf>=0.8",          # offline ASCII graph rendering (draw_ascii fallback)
 ]
 dev = [
   "pytest>=8.0",

@@ -7796,65 +7796,74 @@ a.anchor-link {
 <!-- End of mermaid configuration --></head>
 <body class="jp-Notebook" data-jp-theme-light="true" data-jp-theme-name="JupyterLab Light">
 <main>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=8eb3b599">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=lg-title">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h1 id="Guardrail-Sandwich-%E2%80%94-LangGraph-Implementation">Guardrail Sandwich — LangGraph Implementation<a class="anchor-link" href="#Guardrail-Sandwich-%E2%80%94-LangGraph-Implementation">¶</a></h1><blockquote>
-<p>"For destructive actions, put a slice of bread on both sides."</p>
+<h1 id="Prompt-Chaining-%E2%80%94-LangGraph-Implementation">Prompt Chaining — LangGraph Implementation<a class="anchor-link" href="#Prompt-Chaining-%E2%80%94-LangGraph-Implementation">¶</a></h1><blockquote>
+<p>"Unix pipes, ported to LLMs."</p>
 </blockquote>
-<p>This notebook implements Guardrail Sandwich as a <strong>LangGraph <code>StateGraph</code></strong> — three explicit nodes connected by edges you can see and debug.</p>
+<p>This notebook implements Prompt Chaining as a <strong>LangGraph <code>StateGraph</code></strong> — a linear pipeline of single-purpose steps, each an explicit node, with a cheap programmatic <strong>gate</strong> between consecutive steps that you can see and debug.</p>
 <p>Everything is defined inline:</p>
 <ul>
-<li>the <code>SandwichState</code> TypedDict</li>
-<li>the hook functions and factories</li>
-<li>the three graph nodes (<code>pre_hooks</code>, <code>execute_tool</code>, <code>post_hooks</code>)</li>
-<li>the conditional routing logic</li>
-<li>mock and real walkthroughs</li>
+<li>the <code>ChainState</code> TypedDict</li>
+<li>the gate runner and the per-step node factory</li>
+<li>the graph assembly with early-exit routing</li>
+<li>mock and real walkthroughs of the two-step content-editing pipeline</li>
 </ul>
 <p>Default: AI Studio + <code>ernie-5.1</code> (OpenAI-compatible). See <a href="../../../.env.example"><code>.env.example</code></a> for provider config, <a href="../../../model_config.py"><code>model_config.py</code></a> for the shared model loader.</p>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=3f18a5cc">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=lg-what">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="What-this-pattern-does">What this pattern does<a class="anchor-link" href="#What-this-pattern-does">¶</a></h2><p>Guardrail Sandwich wraps a risky tool call with two deterministic layers:</p>
+<h2 id="What-this-pattern-does">What this pattern does<a class="anchor-link" href="#What-this-pattern-does">¶</a></h2><p>Prompt Chaining breaks one over-loaded prompt into a pipeline of small steps:</p>
 <ol>
-<li><strong>Pre-hooks</strong> decide whether the action is allowed to run.</li>
-<li><strong>The tool step</strong> performs the action.</li>
-<li><strong>Post-hooks</strong> verify the result after the action runs.</li>
+<li><strong>Each step does one thing</strong> — proofread, or rewrite, or fact-check — with its own prompt and its own model.</li>
+<li><strong>A gate sits between steps</strong> — a cheap Python check (length, required keys, schema), <em>not</em> an LLM call. If the gate rejects the output, the step retries; bad output never flows downstream.</li>
+<li><strong>Every step sees all prior outputs</strong> — so a late step can reach back to the original source instead of trusting whatever the previous step handed it.</li>
 </ol>
-<p>In this graph version, each layer is an explicit node — you can see the flow in LangGraph Studio. In the <a href="../langchain/tutorial.ipynb">middleware version</a>, the same logic is an invisible interceptor inside <code>wrap_tool_call</code>.</p>
+<p>Two named failure modes the pattern defends against:</p>
+<ul>
+<li><strong>Information starvation</strong> — a downstream step needs data an earlier step produced, but an intermediate step dropped it. Fixed by keying every prior output by <code>step_id</code> and letting any step reference any of them.</li>
+<li><strong>Gate tyranny</strong> — a gate set too strictly ("exactly 500 words") rejects forever. <code>max_retries</code> is the safety valve.</li>
+</ul>
+<p>In this graph version, each step is an explicit node — you can see the flow in LangGraph Studio. In the <a href="../langchain/tutorial.ipynb">middleware/LCEL version</a>, the same logic is an <code>|</code>-piped runnable.</p>
 <table>
 <thead>
 <tr>
 <th></th>
 <th><code>langgraph/</code> (StateGraph)</th>
-<th><code>langchain/</code> (Middleware)</th>
+<th><code>langchain/</code> (LCEL)</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><strong>Mechanism</strong></td>
 <td>Explicit nodes + edges, visible in LangGraph Studio</td>
-<td>Invisible interceptors on the tool-call pipeline</td>
+<td><code>prompt \| model \| parser \| gate</code> piped runnables</td>
+</tr>
+<tr>
+<td><strong>Retry</strong></td>
+<td>Manual loop inside the node</td>
+<td><code>.with_retry(retry_if_exception_type=…)</code></td>
 </tr>
 <tr>
 <td><strong>Best for</strong></td>
-<td>Learning, debugging, custom topology</td>
-<td>Shipping fast, adding guardrails to existing agents</td>
+<td>Learning, debugging, custom routing</td>
+<td>Shipping fast, composing with existing chains</td>
 </tr>
 <tr>
 <td><strong>Trade-off</strong></td>
 <td>More code, more control</td>
-<td>Less code, less visibility</td>
+<td>Less code, implicit flow</td>
 </tr>
 </tbody>
 </table>
@@ -7862,17 +7871,17 @@ a.anchor-link {
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=d9f33c03">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=lg-setup">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Setup">Setup<a class="anchor-link" href="#Setup">¶</a></h2><p>The notebook is mostly deterministic. The real-backend section at the end uses an LLM to parse free-text email into structured tool arguments. Default: AI Studio + <code>ernie-5.1</code> (OpenAI-compatible). Configure your provider in the root <code>.env</code> — see <a href="../../../.env.example"><code>.env.example</code></a>.</p>
+<h2 id="Setup">Setup<a class="anchor-link" href="#Setup">¶</a></h2><p>The notebook is mostly deterministic — the mock runs use a fake LLM and need no API key. The real-backend section at the end runs the same five-step pipeline against a live model. Default: AI Studio + <code>ernie-5.1</code> (OpenAI-compatible). Configure your provider in the root <code>.env</code> — see <a href="../../../.env.example"><code>.env.example</code></a>.</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=a2c383f0">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=lg-imports">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7882,11 +7891,9 @@ a.anchor-link {
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
-<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">operator</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Annotated</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">TypedDict</span>
 
 <span class="c1"># shared.py lives in the pattern folder (the parent dir); model_config.py and</span>
 <span class="c1"># nbtools.py at the repo root. Find each by walking up, so the notebook isn't</span>
@@ -7895,17 +7902,13 @@ a.anchor-link {
     <span class="n">_dir</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">p</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="p">(</span><span class="n">Path</span><span class="o">.</span><span class="n">cwd</span><span class="p">(),</span> <span class="o">*</span><span class="n">Path</span><span class="o">.</span><span class="n">cwd</span><span class="p">()</span><span class="o">.</span><span class="n">parents</span><span class="p">)</span> <span class="k">if</span> <span class="p">(</span><span class="n">p</span> <span class="o">/</span> <span class="n">_marker</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">())</span>
     <span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">_dir</span><span class="p">))</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">langchain_core.messages</span><span class="w"> </span><span class="kn">import</span> <span class="n">AIMessage</span><span class="p">,</span> <span class="n">AnyMessage</span><span class="p">,</span> <span class="n">ToolMessage</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">langchain_core.tools</span><span class="w"> </span><span class="kn">import</span> <span class="n">StructuredTool</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">langgraph.graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">END</span><span class="p">,</span> <span class="n">START</span><span class="p">,</span> <span class="n">StateGraph</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">langgraph.prebuilt</span><span class="w"> </span><span class="kn">import</span> <span class="n">ToolNode</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Annotated</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">TypedDict</span>
 
-<span class="c1"># Shared hook factories + runner — same definitions used by the langchain/ notebook.</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">shared</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">HookPhase</span><span class="p">,</span> <span class="n">HookResult</span><span class="p">,</span>
-    <span class="n">amount_threshold_hook</span><span class="p">,</span> <span class="n">blocklist_hook</span><span class="p">,</span> <span class="n">output_schema_hook</span><span class="p">,</span>
-    <span class="n">applicable_hooks</span><span class="p">,</span> <span class="n">run_single_hook</span><span class="p">,</span>
-<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">langgraph.graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">END</span><span class="p">,</span> <span class="n">START</span><span class="p">,</span> <span class="n">StateGraph</span>
+
+<span class="c1"># Shared gate factories — same definitions used by the langchain/ notebook.</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">shared</span><span class="w"> </span><span class="kn">import</span> <span class="n">StepStatus</span><span class="p">,</span> <span class="n">length_gate</span><span class="p">,</span> <span class="n">starts_with_gate</span>
 <span class="c1"># Shared graph renderer (PNG, ASCII fallback) — used by every pattern's notebooks.</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">nbtools</span><span class="w"> </span><span class="kn">import</span> <span class="n">show_graph</span>
 </pre></div>
@@ -7914,25 +7917,24 @@ a.anchor-link {
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=528bf384">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=lg-state-md">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="State">State<a class="anchor-link" href="#State">¶</a></h2><p>Guardrail Sandwich does <strong>not</strong> need a large state. We track only the pieces that matter for the lesson:</p>
+<h2 id="State">State<a class="anchor-link" href="#State">¶</a></h2><p>Prompt Chaining needs only a small state:</p>
 <ul>
-<li><code>tool_name</code> and <code>tool_args</code> describe the requested action</li>
-<li><code>pre_outcomes</code> records the front guardrail decisions</li>
-<li><code>tool_output</code> stores the tool result</li>
-<li><code>post_outcomes</code> records the back guardrail decisions</li>
-<li><code>final_status</code> is the final verdict</li>
+<li><code>user_input</code> — the original request. Every step can read it; this is what lets fact-check reach back to the source.</li>
+<li><code>prior</code> — a dict of the latest successful output per step, keyed by <code>step_id</code>. Templates interpolate against it, so any step can reference any earlier step by name.</li>
+<li><code>runs</code> — an append-only audit log of every attempt (uses the <code>operator.add</code> reducer so nodes accumulate into it).</li>
+<li><code>final_output</code>, <code>completed</code>, <code>failure_reason</code> — the verdict.</li>
 </ul>
-<p>There is one extra field, <code>messages</code>, because <code>ToolNode</code> expects LangGraph message state. That is an implementation detail, not the main conceptual burden for the reader.</p>
+<p><code>StepSpec</code> describes one step: its prompt, its model, and its gate. The gate is a config dict from <a href="../shared.py"><code>shared.py</code></a> — the same gate factories the LCEL notebook uses.</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=18fc4db5">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=lg-state">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7940,44 +7942,59 @@ a.anchor-link {
 <div class="jp-InputPrompt jp-InputArea-prompt">In [2]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">SandwichState</span><span class="p">(</span><span class="n">TypedDict</span><span class="p">,</span> <span class="n">total</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
-    <span class="c1"># ToolNode requires a messages list in state.</span>
-    <span class="n">messages</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="n">AnyMessage</span><span class="p">],</span> <span class="n">operator</span><span class="o">.</span><span class="n">add</span><span class="p">]</span>
+<div class="highlight hl-ipython3"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">ChainState</span><span class="p">(</span><span class="n">TypedDict</span><span class="p">,</span> <span class="n">total</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+    <span class="c1"># The original request. Every step can read it — this is the</span>
+    <span class="c1"># information-starvation guard: fact-check reaches back to the source.</span>
+    <span class="n">user_input</span><span class="p">:</span> <span class="nb">str</span>
 
-    <span class="n">tool_name</span><span class="p">:</span> <span class="nb">str</span>
-    <span class="n">tool_args</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+    <span class="c1"># Latest successful output per step, keyed by step_id. Templates</span>
+    <span class="c1"># interpolate against this dict, so any step can reference any prior</span>
+    <span class="c1"># step by name, not just its immediate predecessor.</span>
+    <span class="n">prior</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span>
 
-    <span class="c1"># Single list of hook config dicts — each has {"name", "fn", "phase", "priority", "blocks", "applies_to"}.</span>
-    <span class="c1"># The nodes select the relevant ones per phase/tool via shared.applicable_hooks.</span>
-    <span class="n">hooks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span>
+    <span class="c1"># Append-only audit log of every attempt (the operator.add reducer</span>
+    <span class="c1"># lets nodes return partial lists that accumulate).</span>
+    <span class="n">runs</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span> <span class="n">operator</span><span class="o">.</span><span class="n">add</span><span class="p">]</span>
 
-    <span class="n">pre_outcomes</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span>
-    <span class="n">tool_output</span><span class="p">:</span> <span class="n">Any</span>
-    <span class="n">tool_error</span><span class="p">:</span> <span class="nb">str</span>
-    <span class="n">post_outcomes</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span>
-    <span class="n">rollback_marked</span><span class="p">:</span> <span class="nb">bool</span>
-    <span class="n">final_status</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">final_output</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">completed</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">failure_reason</span><span class="p">:</span> <span class="nb">str</span>
 
-<span class="n">ToolFn</span> <span class="o">=</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+
+<span class="c1"># An LLM call: (prompt, system_prompt, model) -&gt; output string.</span>
+<span class="n">LLMCallFn</span> <span class="o">=</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="nb">str</span><span class="p">]</span>
+
+
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">StepSpec</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""One step in the chain: a prompt to run, the model to run it on, and a</span>
+<span class="sd">    cheap programmatic gate (a shared.py dict, never an LLM call). A failed gate</span>
+<span class="sd">    retries up to `max_retries` times before the chain gives up."""</span>
+
+    <span class="n">step_id</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">system_prompt</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">prompt_template</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">gate</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+    <span class="n">model</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"claude-sonnet-4-6"</span>
+    <span class="n">max_retries</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span>
 </pre></div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=79cfbc14">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=lg-gate-md">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="ToolNode:-the-middle-slice"><code>ToolNode</code>: the middle slice<a class="anchor-link" href="#ToolNode:-the-middle-slice">¶</a></h2><p>We use LangGraph's prebuilt <code>ToolNode</code> as the middle node of the graph.</p>
-<p>Why? Because the pattern is about <strong>what happens before and after</strong> the tool call. <code>ToolNode</code> already does the tool execution part well, so we should reuse it instead of rebuilding it.</p>
-<p>Reference: <a href="https://reference.langchain.com/python/langgraph.prebuilt/tool_node/ToolNode">ToolNode docs</a></p>
+<h2 id="The-gate-runner">The gate runner<a class="anchor-link" href="#The-gate-runner">¶</a></h2><p><code>run_gate</code> is the chain's dispatcher for a single gate. It reads <code>fn</code> from the gate config dict and returns <code>(passed, reason)</code>.</p>
+<p>The one rule that matters: <strong>fail closed.</strong> A gate that raises an exception is treated as a rejection, never a pass. A broken guardrail must not silently become an open door. The gate factories themselves (<code>length_gate</code>, <code>starts_with_gate</code>) are imported from the shared <a href="../shared.py"><code>shared.py</code></a>.</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=c9892558">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=lg-gate">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7985,62 +8002,44 @@ a.anchor-link {
 <div class="jp-InputPrompt jp-InputArea-prompt">In [3]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">make_tool_call_message</span><span class="p">(</span><span class="n">tool_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">tool_args</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">call_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"guardrail-call"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AIMessage</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">"""Convert a simple tool request into the message format ToolNode expects.</span>
-<span class="sd">    ToolNode reads AIMessage.tool_calls to decide which tool to invoke."""</span>
-    <span class="k">return</span> <span class="n">AIMessage</span><span class="p">(</span>
-        <span class="n">content</span><span class="o">=</span><span class="s2">""</span><span class="p">,</span>
-        <span class="n">tool_calls</span><span class="o">=</span><span class="p">[{</span>
-            <span class="s2">"name"</span><span class="p">:</span> <span class="n">tool_name</span><span class="p">,</span>
-            <span class="s2">"args"</span><span class="p">:</span> <span class="n">tool_args</span><span class="p">,</span>
-            <span class="s2">"id"</span><span class="p">:</span> <span class="n">call_id</span><span class="p">,</span>
-            <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"tool_call"</span><span class="p">,</span>
-        <span class="p">}],</span>
-    <span class="p">)</span>
+<div class="highlight hl-ipython3"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">run_gate</span><span class="p">(</span><span class="n">gate_cfg</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">output</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">bool</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Run one gate and return (passed, reason).</span>
 
-<span class="k">def</span><span class="w"> </span><span class="nf">decode_tool_message</span><span class="p">(</span><span class="n">message</span><span class="p">:</span> <span class="n">ToolMessage</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">"""Turn ToolNode output back into plain Python data when possible.</span>
-<span class="sd">    ToolNode stores structured return values inside ToolMessage.content as JSON strings."""</span>
-    <span class="n">text</span> <span class="o">=</span> <span class="n">message</span><span class="o">.</span><span class="n">content</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">message</span><span class="o">.</span><span class="n">content</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="k">else</span> <span class="nb">str</span><span class="p">(</span><span class="n">message</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
-    <span class="n">stripped</span> <span class="o">=</span> <span class="n">text</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
-    <span class="k">if</span> <span class="n">stripped</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">"{"</span><span class="p">)</span> <span class="ow">or</span> <span class="n">stripped</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">"["</span><span class="p">):</span>
-        <span class="k">try</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">stripped</span><span class="p">)</span>
-        <span class="k">except</span> <span class="n">json</span><span class="o">.</span><span class="n">JSONDecodeError</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">text</span>
-    <span class="k">return</span> <span class="n">text</span>
+<span class="sd">    Fail closed: a gate that raises is treated as FAIL, never PASS. A</span>
+<span class="sd">    broken guardrail must not become an open door.</span>
+<span class="sd">    """</span>
+    <span class="n">fn</span> <span class="o">=</span> <span class="n">gate_cfg</span><span class="p">[</span><span class="s2">"fn"</span><span class="p">]</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="n">gate_cfg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"name"</span><span class="p">,</span> <span class="s2">"gate"</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">passed</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">fn</span><span class="p">(</span><span class="n">output</span><span class="p">))</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>  <span class="c1"># noqa: BLE001</span>
+        <span class="k">return</span> <span class="kc">False</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> crashed: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">"</span>
+    <span class="k">if</span> <span class="n">passed</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">True</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> ok"</span>
+    <span class="k">return</span> <span class="kc">False</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> rejected (</span><span class="si">{</span><span class="n">gate_cfg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">'description'</span><span class="p">,</span><span class="w"> </span><span class="s1">''</span><span class="p">)</span><span class="si">}</span><span class="s2">)"</span>
 </pre></div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=d2b3dd7e">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=lg-node-md">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Hook-runner">Hook runner<a class="anchor-link" href="#Hook-runner">¶</a></h2><p><code>run_single_hook</code> runs one hook and returns a structured outcome dict, with two safety rules: <strong>fail-closed</strong> (a hook that raises is treated as <code>BLOCK</code>, never <code>PASS</code>) and <strong>shadow mode</strong> (<code>blocks=False</code> downgrades a <code>BLOCK</code> to <code>WARN</code> so the tool still runs). It lives in the shared <a href="../shared.py"><code>shared.py</code></a> — the <em>same</em> runner the langchain/ middleware calls — so both notebooks produce identical outcome records. The hook factories (<code>amount_threshold_hook</code>, <code>blocklist_hook</code>, <code>output_schema_hook</code>) and the <code>applicable_hooks</code> selector come from there too.</p>
+<h2 id="The-step-node">The step node<a class="anchor-link" href="#The-step-node">¶</a></h2><p><code>make_step_node</code> turns one <code>StepSpec</code> into a LangGraph node. Each node:</p>
+<ol>
+<li><strong>Renders</strong> its prompt template against <code>{**prior, "user_input": …}</code>. A missing template key leaves a <code>[missing key]</code> marker instead of crashing — the chain stays alive and the gap shows up in the trace.</li>
+<li><strong>Calls</strong> the LLM, then <strong>runs</strong> its gate.</li>
+<li><strong>Retries</strong> up to <code>max_retries</code> on gate failure. A <em>gate</em> failure retries; an <em>LLM</em> exception fails fast (retrying a provider outage is the retry pattern's job, not the chain's).</li>
+<li><strong>Records</strong> every attempt in <code>runs</code>, stores a successful output under <code>step_id</code>, and sets <code>failure_reason</code> if retries run out.</li>
+</ol>
 </div>
 </div>
 </div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=4d60f292">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Node-1:-pre-hooks">Node 1: pre-hooks<a class="anchor-link" href="#Node-1:-pre-hooks">¶</a></h2><p>This node is the <strong>front bread slice</strong>. It decides whether the tool is allowed to run at all.</p>
-<ul>
-<li>If a pre-hook blocks, the graph ends immediately.</li>
-<li>If all pre-hooks pass, the node prepares the tool call message for <code>ToolNode</code>.</li>
-</ul>
-</div>
-</div>
-</div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=03dcc362">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=lg-node">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -8048,44 +8047,103 @@ a.anchor-link {
 <div class="jp-InputPrompt jp-InputArea-prompt">In [4]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">pre_hooks_node</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">SandwichState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-    <span class="n">tool_name</span> <span class="o">=</span> <span class="n">state</span><span class="p">[</span><span class="s2">"tool_name"</span><span class="p">]</span>
-    <span class="n">args</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"tool_args"</span><span class="p">,</span> <span class="p">{})</span>
-    <span class="n">hooks</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"hooks"</span><span class="p">,</span> <span class="p">[])</span>
+<div class="highlight hl-ipython3"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">_render</span><span class="p">(</span><span class="n">step</span><span class="p">:</span> <span class="n">StepSpec</span><span class="p">,</span> <span class="n">prior</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="n">user_input</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="c1"># Templates use {step_id} placeholders + {user_input}. A bad placeholder</span>
+    <span class="c1"># leaves a literal marker instead of raising — the chain stays alive and a</span>
+    <span class="c1"># debug pass can see exactly what was unwired in the trace. We catch the</span>
+    <span class="c1"># full family str.format can raise: KeyError (missing name), IndexError</span>
+    <span class="c1"># (positional {0}), ValueError (a stray/unbalanced brace).</span>
+    <span class="n">merged</span> <span class="o">=</span> <span class="p">{</span><span class="o">**</span><span class="n">prior</span><span class="p">,</span> <span class="s2">"user_input"</span><span class="p">:</span> <span class="n">user_input</span><span class="p">}</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">step</span><span class="o">.</span><span class="n">prompt_template</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="o">**</span><span class="n">merged</span><span class="p">)</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">KeyError</span><span class="p">,</span> <span class="ne">IndexError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">step</span><span class="o">.</span><span class="n">prompt_template</span> <span class="o">+</span> <span class="sa">f</span><span class="s2">"</span><span class="se">\n\n</span><span class="s2">[chain: bad template placeholder: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">]"</span>
 
-    <span class="c1"># Select PRE hooks that apply to this tool, in priority order (shared with langchain/).</span>
-    <span class="n">pre_hooks</span> <span class="o">=</span> <span class="n">applicable_hooks</span><span class="p">(</span><span class="n">hooks</span><span class="p">,</span> <span class="n">HookPhase</span><span class="o">.</span><span class="n">PRE</span><span class="p">,</span> <span class="n">tool_name</span><span class="p">)</span>
-    <span class="n">outcomes</span> <span class="o">=</span> <span class="p">[]</span>
 
-    <span class="c1"># Run hooks in priority order. First hard BLOCK stops the graph immediately.</span>
-    <span class="k">for</span> <span class="n">hook_cfg</span> <span class="ow">in</span> <span class="n">pre_hooks</span><span class="p">:</span>
-        <span class="n">outcome</span> <span class="o">=</span> <span class="n">run_single_hook</span><span class="p">(</span><span class="n">hook_cfg</span><span class="p">,</span> <span class="n">tool_name</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
-        <span class="n">outcomes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">outcome</span><span class="p">)</span>
-        <span class="k">if</span> <span class="n">outcome</span><span class="p">[</span><span class="s2">"result"</span><span class="p">]</span> <span class="o">==</span> <span class="n">HookResult</span><span class="o">.</span><span class="n">BLOCK</span><span class="o">.</span><span class="n">value</span> <span class="ow">and</span> <span class="n">hook_cfg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"blocks"</span><span class="p">,</span> <span class="kc">True</span><span class="p">):</span>
-            <span class="k">return</span> <span class="p">{</span><span class="s2">"pre_outcomes"</span><span class="p">:</span> <span class="n">outcomes</span><span class="p">,</span> <span class="s2">"final_status"</span><span class="p">:</span> <span class="s2">"blocked_pre"</span><span class="p">}</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">make_step_node</span><span class="p">(</span><span class="n">step</span><span class="p">:</span> <span class="n">StepSpec</span><span class="p">,</span> <span class="n">llm_call</span><span class="p">:</span> <span class="n">LLMCallFn</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Turn one StepSpec into a LangGraph node.</span>
 
-    <span class="c1"># All pre-hooks passed — prepare the tool call message for ToolNode.</span>
-    <span class="k">return</span> <span class="p">{</span>
-        <span class="s2">"pre_outcomes"</span><span class="p">:</span> <span class="n">outcomes</span><span class="p">,</span>
-        <span class="s2">"messages"</span><span class="p">:</span> <span class="p">[</span><span class="n">make_tool_call_message</span><span class="p">(</span><span class="n">tool_name</span><span class="p">,</span> <span class="n">args</span><span class="p">)],</span>
-    <span class="p">}</span>
+<span class="sd">    The node renders its prompt from all prior outputs, calls the LLM,</span>
+<span class="sd">    runs its gate, and retries up to `max_retries`. On success it stores</span>
+<span class="sd">    the output under `step_id`; on exhaustion it sets `failure_reason`</span>
+<span class="sd">    so the conditional edge can route straight to END.</span>
+<span class="sd">    """</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">node</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">ChainState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="n">prior</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"prior"</span><span class="p">,</span> <span class="p">{}))</span>
+        <span class="n">user_input</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"user_input"</span><span class="p">,</span> <span class="s2">""</span><span class="p">)</span>
+        <span class="n">runs</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="k">for</span> <span class="n">attempt</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">step</span><span class="o">.</span><span class="n">max_retries</span> <span class="o">+</span> <span class="mi">2</span><span class="p">):</span>  <span class="c1"># initial try + max_retries</span>
+            <span class="n">prompt</span> <span class="o">=</span> <span class="n">_render</span><span class="p">(</span><span class="n">step</span><span class="p">,</span> <span class="n">prior</span><span class="p">,</span> <span class="n">user_input</span><span class="p">)</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">output</span> <span class="o">=</span> <span class="n">llm_call</span><span class="p">(</span><span class="n">prompt</span><span class="p">,</span> <span class="n">step</span><span class="o">.</span><span class="n">system_prompt</span><span class="p">,</span> <span class="n">step</span><span class="o">.</span><span class="n">model</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>  <span class="c1"># noqa: BLE001</span>
+                <span class="c1"># LLM errors fail fast — retrying a provider outage is the</span>
+                <span class="c1"># retry pattern's job, not the chain's.</span>
+                <span class="n">runs</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+                    <span class="s2">"step_id"</span><span class="p">:</span> <span class="n">step</span><span class="o">.</span><span class="n">step_id</span><span class="p">,</span> <span class="s2">"attempt"</span><span class="p">:</span> <span class="n">attempt</span><span class="p">,</span> <span class="s2">"output"</span><span class="p">:</span> <span class="s2">""</span><span class="p">,</span>
+                    <span class="s2">"status"</span><span class="p">:</span> <span class="n">StepStatus</span><span class="o">.</span><span class="n">LLM_ERROR</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                    <span class="s2">"gate"</span><span class="p">:</span> <span class="n">step</span><span class="o">.</span><span class="n">gate</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"name"</span><span class="p">,</span> <span class="s2">""</span><span class="p">),</span>
+                    <span class="s2">"reason"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+                <span class="p">})</span>
+                <span class="k">return</span> <span class="p">{</span>
+                    <span class="s2">"runs"</span><span class="p">:</span> <span class="n">runs</span><span class="p">,</span>
+                    <span class="s2">"failure_reason"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"step </span><span class="si">{</span><span class="n">step</span><span class="o">.</span><span class="n">step_id</span><span class="si">!r}</span><span class="s2"> LLM error: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+                <span class="p">}</span>
+
+            <span class="n">passed</span><span class="p">,</span> <span class="n">reason</span> <span class="o">=</span> <span class="n">run_gate</span><span class="p">(</span><span class="n">step</span><span class="o">.</span><span class="n">gate</span><span class="p">,</span> <span class="n">output</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">passed</span><span class="p">:</span>
+                <span class="n">runs</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+                    <span class="s2">"step_id"</span><span class="p">:</span> <span class="n">step</span><span class="o">.</span><span class="n">step_id</span><span class="p">,</span> <span class="s2">"attempt"</span><span class="p">:</span> <span class="n">attempt</span><span class="p">,</span> <span class="s2">"output"</span><span class="p">:</span> <span class="n">output</span><span class="p">,</span>
+                    <span class="s2">"status"</span><span class="p">:</span> <span class="n">StepStatus</span><span class="o">.</span><span class="n">SUCCESS</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                    <span class="s2">"gate"</span><span class="p">:</span> <span class="n">step</span><span class="o">.</span><span class="n">gate</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"name"</span><span class="p">,</span> <span class="s2">""</span><span class="p">),</span> <span class="s2">"reason"</span><span class="p">:</span> <span class="n">reason</span><span class="p">,</span>
+                <span class="p">})</span>
+                <span class="c1"># Publish under step_id so any later step can read this output</span>
+                <span class="c1"># by name — this is what makes the chain's outputs accumulate.</span>
+                <span class="n">prior</span><span class="p">[</span><span class="n">step</span><span class="o">.</span><span class="n">step_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">output</span>
+                <span class="k">return</span> <span class="p">{</span><span class="s2">"prior"</span><span class="p">:</span> <span class="n">prior</span><span class="p">,</span> <span class="s2">"runs"</span><span class="p">:</span> <span class="n">runs</span><span class="p">,</span> <span class="s2">"final_output"</span><span class="p">:</span> <span class="n">output</span><span class="p">}</span>
+
+            <span class="c1"># Gate rejected: record the attempt and loop to retry. Bad output</span>
+            <span class="c1"># is never stored in `prior`, so it can't flow downstream.</span>
+            <span class="n">runs</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+                <span class="s2">"step_id"</span><span class="p">:</span> <span class="n">step</span><span class="o">.</span><span class="n">step_id</span><span class="p">,</span> <span class="s2">"attempt"</span><span class="p">:</span> <span class="n">attempt</span><span class="p">,</span> <span class="s2">"output"</span><span class="p">:</span> <span class="n">output</span><span class="p">,</span>
+                <span class="s2">"status"</span><span class="p">:</span> <span class="n">StepStatus</span><span class="o">.</span><span class="n">GATE_FAILED</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                <span class="s2">"gate"</span><span class="p">:</span> <span class="n">step</span><span class="o">.</span><span class="n">gate</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"name"</span><span class="p">,</span> <span class="s2">""</span><span class="p">),</span> <span class="s2">"reason"</span><span class="p">:</span> <span class="n">reason</span><span class="p">,</span>
+            <span class="p">})</span>
+
+        <span class="c1"># Fell out of the retry loop — gate tyranny. Mark the last attempt as</span>
+        <span class="c1"># exhausted. (`runs` is always non-empty here: the loop runs at least</span>
+        <span class="c1"># once for any max_retries &gt;= 0, which build_chain_graph enforces.)</span>
+        <span class="n">runs</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="s2">"status"</span><span class="p">]</span> <span class="o">=</span> <span class="n">StepStatus</span><span class="o">.</span><span class="n">RETRY_EXHAUSTED</span><span class="o">.</span><span class="n">value</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">"runs"</span><span class="p">:</span> <span class="n">runs</span><span class="p">,</span>
+            <span class="s2">"failure_reason"</span><span class="p">:</span> <span class="p">(</span>
+                <span class="sa">f</span><span class="s2">"step </span><span class="si">{</span><span class="n">step</span><span class="o">.</span><span class="n">step_id</span><span class="si">!r}</span><span class="s2"> gate </span><span class="si">{</span><span class="n">step</span><span class="o">.</span><span class="n">gate</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">'name'</span><span class="p">)</span><span class="si">!r}</span><span class="s2"> "</span>
+                <span class="sa">f</span><span class="s2">"failed after </span><span class="si">{</span><span class="n">step</span><span class="o">.</span><span class="n">max_retries</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2"> attempts"</span>
+            <span class="p">),</span>
+        <span class="p">}</span>
+
+    <span class="k">return</span> <span class="n">node</span>
 </pre></div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=7cff16a4">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=lg-build-md">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Node-2:-tool-execution">Node 2: tool execution<a class="anchor-link" href="#Node-2:-tool-execution">¶</a></h2><p>This is the only place where LangGraph-specific tool machinery really matters. We wrap our plain Python callables as tools, then hand execution to <code>ToolNode</code>.</p>
+<h2 id="Build-the-graph">Build the graph<a class="anchor-link" href="#Build-the-graph">¶</a></h2><p>The graph is a straight line with an escape hatch:</p>
+<p><code>START → rewrite → factcheck → END</code></p>
+<p>After every step, a conditional edge checks <code>failure_reason</code>. If a gate exhausted its retries (or the LLM errored), the graph routes straight to <code>END</code> and skips the rest of the pipeline — there's no point fact-checking a draft that failed the length gate. Otherwise it flows to the next step. <code>build_chain_graph</code> also rejects empty chains and duplicate step ids, since ids are the keys everything else references.</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=a1fbd3a8">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=lg-build">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -8093,119 +8151,40 @@ a.anchor-link {
 <div class="jp-InputPrompt jp-InputArea-prompt">In [5]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">build_tool_node</span><span class="p">(</span><span class="n">tools</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ToolFn</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">ToolNode</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">"""Wrap plain callables as LangChain tools, then build a ToolNode."""</span>
-    <span class="n">wrapped</span> <span class="o">=</span> <span class="p">[</span>
-        <span class="n">StructuredTool</span><span class="o">.</span><span class="n">from_function</span><span class="p">(</span><span class="n">fn</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="n">name</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="n">fn</span><span class="o">.</span><span class="vm">__doc__</span> <span class="ow">or</span> <span class="n">name</span><span class="p">)</span>
-        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">fn</span> <span class="ow">in</span> <span class="n">tools</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
-    <span class="p">]</span>
-    <span class="c1"># handle_tool_errors=True makes ToolNode return an error ToolMessage</span>
-    <span class="c1"># instead of re-raising into the graph runtime. That keeps the pattern</span>
-    <span class="c1"># logic in one place: post_hooks_node can normalize the failure.</span>
-    <span class="k">return</span> <span class="n">ToolNode</span><span class="p">(</span><span class="n">wrapped</span><span class="p">,</span> <span class="n">handle_tool_errors</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-</pre></div>
-</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=1032b55f">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Node-3:-post-hooks">Node 3: post-hooks<a class="anchor-link" href="#Node-3:-post-hooks">¶</a></h2><p>This node is the <strong>back bread slice</strong>. It reads the <code>ToolMessage</code> appended by <code>ToolNode</code>, decodes the tool output, and runs the post-hooks.</p>
-<p>If the tool step itself failed, we normalize that back to the simple pattern-level status <code>tool_failed</code>.</p>
-</div>
-</div>
-</div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=fc656084">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [6]:</div>
-<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
-<div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">post_hooks_node</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">SandwichState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-    <span class="n">tool_name</span> <span class="o">=</span> <span class="n">state</span><span class="p">[</span><span class="s2">"tool_name"</span><span class="p">]</span>
-    <span class="n">args</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"tool_args"</span><span class="p">,</span> <span class="p">{})</span>
-    <span class="n">hooks</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"hooks"</span><span class="p">,</span> <span class="p">[])</span>
+<div class="highlight hl-ipython3"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">build_chain_graph</span><span class="p">(</span><span class="n">steps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">StepSpec</span><span class="p">],</span> <span class="n">llm_call</span><span class="p">:</span> <span class="n">LLMCallFn</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Assemble the chain as a linear StateGraph with early-exit edges.</span>
 
-    <span class="n">last_message</span> <span class="o">=</span> <span class="n">state</span><span class="p">[</span><span class="s2">"messages"</span><span class="p">][</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+<span class="sd">    START -&gt; step1 -&gt; step2 -&gt; ... -&gt; stepN -&gt; END</span>
 
-    <span class="c1"># ToolNode signals failures via ToolMessage(status="error").</span>
-    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">last_message</span><span class="p">,</span> <span class="n">ToolMessage</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">last_message</span><span class="p">,</span> <span class="s2">"status"</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"error"</span><span class="p">:</span>
-        <span class="n">error_text</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">last_message</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
-        <span class="k">if</span> <span class="s2">"not a valid tool"</span> <span class="ow">in</span> <span class="n">error_text</span><span class="p">:</span>
-            <span class="n">error_text</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"unknown tool </span><span class="si">{</span><span class="n">tool_name</span><span class="si">!r}</span><span class="s2">"</span>
-        <span class="k">return</span> <span class="p">{</span>
-            <span class="s2">"tool_error"</span><span class="p">:</span> <span class="n">error_text</span><span class="p">,</span>
-            <span class="s2">"post_outcomes"</span><span class="p">:</span> <span class="p">[],</span>
-            <span class="s2">"rollback_marked"</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
-            <span class="s2">"final_status"</span><span class="p">:</span> <span class="s2">"tool_failed"</span><span class="p">,</span>
-        <span class="p">}</span>
+<span class="sd">    After every step a conditional edge checks `failure_reason`: if a gate</span>
+<span class="sd">    exhausted its retries (or the LLM errored), the graph jumps to END and</span>
+<span class="sd">    skips the rest of the pipeline. Otherwise it flows to the next step.</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">steps</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"chain needs at least one step"</span><span class="p">)</span>
+    <span class="n">ids</span> <span class="o">=</span> <span class="p">[</span><span class="n">s</span><span class="o">.</span><span class="n">step_id</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">steps</span><span class="p">]</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">ids</span><span class="p">))</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="n">ids</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"duplicate step ids: </span><span class="si">{</span><span class="n">ids</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="c1"># Guarantee each node's retry loop runs at least once, so the</span>
+    <span class="c1"># exhaustion path's runs[-1] is always populated.</span>
+    <span class="n">bad</span> <span class="o">=</span> <span class="p">[</span><span class="n">s</span><span class="o">.</span><span class="n">step_id</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">steps</span> <span class="k">if</span> <span class="n">s</span><span class="o">.</span><span class="n">max_retries</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">bad</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"max_retries must be &gt;= 0; offending steps: </span><span class="si">{</span><span class="n">bad</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
-    <span class="n">tool_output</span> <span class="o">=</span> <span class="n">decode_tool_message</span><span class="p">(</span><span class="n">last_message</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">last_message</span><span class="p">,</span> <span class="n">ToolMessage</span><span class="p">)</span> <span class="k">else</span> <span class="n">last_message</span>
+    <span class="n">graph</span> <span class="o">=</span> <span class="n">StateGraph</span><span class="p">(</span><span class="n">ChainState</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="n">steps</span><span class="p">:</span>
+        <span class="n">graph</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="n">step</span><span class="o">.</span><span class="n">step_id</span><span class="p">,</span> <span class="n">make_step_node</span><span class="p">(</span><span class="n">step</span><span class="p">,</span> <span class="n">llm_call</span><span class="p">))</span>
 
-    <span class="c1"># Select POST hooks that apply to this tool, in priority order (shared with langchain/).</span>
-    <span class="n">post_hooks</span> <span class="o">=</span> <span class="n">applicable_hooks</span><span class="p">(</span><span class="n">hooks</span><span class="p">,</span> <span class="n">HookPhase</span><span class="o">.</span><span class="n">POST</span><span class="p">,</span> <span class="n">tool_name</span><span class="p">)</span>
-    <span class="n">outcomes</span> <span class="o">=</span> <span class="p">[]</span>
-    <span class="n">rollback</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">graph</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="n">START</span><span class="p">,</span> <span class="n">steps</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">step_id</span><span class="p">)</span>
 
-    <span class="c1"># All post-hooks run for audit completeness, even after a BLOCK.</span>
-    <span class="k">for</span> <span class="n">hook_cfg</span> <span class="ow">in</span> <span class="n">post_hooks</span><span class="p">:</span>
-        <span class="n">outcome</span> <span class="o">=</span> <span class="n">run_single_hook</span><span class="p">(</span><span class="n">hook_cfg</span><span class="p">,</span> <span class="n">tool_name</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">tool_output</span><span class="p">)</span>
-        <span class="n">outcomes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">outcome</span><span class="p">)</span>
-        <span class="k">if</span> <span class="n">outcome</span><span class="p">[</span><span class="s2">"result"</span><span class="p">]</span> <span class="o">==</span> <span class="n">HookResult</span><span class="o">.</span><span class="n">BLOCK</span><span class="o">.</span><span class="n">value</span> <span class="ow">and</span> <span class="n">hook_cfg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"blocks"</span><span class="p">,</span> <span class="kc">True</span><span class="p">):</span>
-            <span class="n">rollback</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">route_after</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">ChainState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">"end"</span> <span class="k">if</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"failure_reason"</span><span class="p">)</span> <span class="k">else</span> <span class="s2">"next"</span>
 
-    <span class="k">return</span> <span class="p">{</span>
-        <span class="s2">"tool_output"</span><span class="p">:</span> <span class="n">tool_output</span><span class="p">,</span>
-        <span class="s2">"post_outcomes"</span><span class="p">:</span> <span class="n">outcomes</span><span class="p">,</span>
-        <span class="s2">"rollback_marked"</span><span class="p">:</span> <span class="n">rollback</span><span class="p">,</span>
-        <span class="s2">"final_status"</span><span class="p">:</span> <span class="s2">"blocked_post"</span> <span class="k">if</span> <span class="n">rollback</span> <span class="k">else</span> <span class="s2">"passed"</span><span class="p">,</span>
-    <span class="p">}</span>
-</pre></div>
-</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=30c4d7c8">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Build-the-graph">Build the graph<a class="anchor-link" href="#Build-the-graph">¶</a></h2><p>The graph is deliberately small and explicit:</p>
-<p><code>START -&gt; pre_hooks -&gt; (blocked? END : execute_tool) -&gt; post_hooks -&gt; END</code></p>
-</div>
-</div>
-</div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=d965ccc5">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [7]:</div>
-<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
-<div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">route_after_pre_hooks</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">SandwichState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">"""Skip the tool step when a pre-hook already blocked the request."""</span>
-    <span class="k">return</span> <span class="s2">"end"</span> <span class="k">if</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"final_status"</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"blocked_pre"</span> <span class="k">else</span> <span class="s2">"execute_tool"</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">step</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">steps</span><span class="p">):</span>
+        <span class="n">is_last</span> <span class="o">=</span> <span class="n">i</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">steps</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
+        <span class="n">nxt</span> <span class="o">=</span> <span class="n">END</span> <span class="k">if</span> <span class="n">is_last</span> <span class="k">else</span> <span class="n">steps</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">step_id</span>
+        <span class="n">graph</span><span class="o">.</span><span class="n">add_conditional_edges</span><span class="p">(</span><span class="n">step</span><span class="o">.</span><span class="n">step_id</span><span class="p">,</span> <span class="n">route_after</span><span class="p">,</span> <span class="p">{</span><span class="s2">"end"</span><span class="p">:</span> <span class="n">END</span><span class="p">,</span> <span class="s2">"next"</span><span class="p">:</span> <span class="n">nxt</span><span class="p">})</span>
 
-<span class="k">def</span><span class="w"> </span><span class="nf">build_guardrail_graph</span><span class="p">(</span><span class="n">tools</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ToolFn</span><span class="p">],</span> <span class="n">hooks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]):</span>
-<span class="w">    </span><span class="sd">"""Build the sandwich graph. hooks is a list of config dicts with fn inlined."""</span>
-    <span class="n">graph</span> <span class="o">=</span> <span class="n">StateGraph</span><span class="p">(</span><span class="n">SandwichState</span><span class="p">)</span>
-    <span class="n">graph</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">"pre_hooks"</span><span class="p">,</span> <span class="n">pre_hooks_node</span><span class="p">)</span>
-    <span class="n">graph</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">"execute_tool"</span><span class="p">,</span> <span class="n">build_tool_node</span><span class="p">(</span><span class="n">tools</span><span class="p">))</span>
-    <span class="n">graph</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">"post_hooks"</span><span class="p">,</span> <span class="n">post_hooks_node</span><span class="p">)</span>
-    <span class="n">graph</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="n">START</span><span class="p">,</span> <span class="s2">"pre_hooks"</span><span class="p">)</span>
-    <span class="n">graph</span><span class="o">.</span><span class="n">add_conditional_edges</span><span class="p">(</span><span class="s2">"pre_hooks"</span><span class="p">,</span> <span class="n">route_after_pre_hooks</span><span class="p">,</span> <span class="p">{</span><span class="s2">"end"</span><span class="p">:</span> <span class="n">END</span><span class="p">,</span> <span class="s2">"execute_tool"</span><span class="p">:</span> <span class="s2">"execute_tool"</span><span class="p">})</span>
-    <span class="n">graph</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="s2">"execute_tool"</span><span class="p">,</span> <span class="s2">"post_hooks"</span><span class="p">)</span>
-    <span class="n">graph</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="s2">"post_hooks"</span><span class="p">,</span> <span class="n">END</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">graph</span><span class="o">.</span><span class="n">compile</span><span class="p">()</span>
 </pre></div>
 </div>
@@ -8213,74 +8192,127 @@ a.anchor-link {
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=4e0f5f22">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=lg-mock-md">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Mock-tools">Mock tools<a class="anchor-link" href="#Mock-tools">¶</a></h2><p>We use one healthy tool and one broken tool so readers can see both sides of the sandwich with very little setup.</p>
+<h2 id="A-deterministic-mock-LLM">A deterministic mock LLM<a class="anchor-link" href="#A-deterministic-mock-LLM">¶</a></h2><p>So the notebook runs with no API key, <code>_fake_llm</code> routes on a <code>[role]…[/role]</code> tag in the system prompt and returns a fixed output per role. It mirrors the fake in <a href="../example.py"><code>example.py</code></a> — and crucially, every number (<code>35%</code>, <code>18%</code>) survives every step. That is what makes the fact-check pass honestly rather than by luck.</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=0a0df58e">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=lg-mock-llm">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [8]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [6]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">transfer_funds</span><span class="p">(</span><span class="n">account</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">""</span><span class="p">,</span> <span class="n">amount</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">memo</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">""</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">"""Simulate a successful transfer."""</span>
-    <span class="c1"># A healthy receipt includes the fields our downstream system expects.</span>
-    <span class="k">return</span> <span class="p">{</span><span class="s2">"status"</span><span class="p">:</span> <span class="s2">"ok"</span><span class="p">,</span> <span class="s2">"account"</span><span class="p">:</span> <span class="n">account</span><span class="p">,</span> <span class="s2">"amount"</span><span class="p">:</span> <span class="n">amount</span><span class="p">,</span> <span class="s2">"tx_id"</span><span class="p">:</span> <span class="s2">"TX-20250610-001"</span><span class="p">}</span>
-
-<span class="k">def</span><span class="w"> </span><span class="nf">broken_transfer_funds</span><span class="p">(</span><span class="n">account</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">""</span><span class="p">,</span> <span class="n">amount</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">memo</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">""</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">"""Simulate a buggy transfer that forgets tx_id."""</span>
-    <span class="c1"># This intentionally breaks the schema so the post-hook has something to catch.</span>
-    <span class="k">return</span> <span class="p">{</span><span class="s2">"status"</span><span class="p">:</span> <span class="s2">"ok"</span><span class="p">,</span> <span class="s2">"account"</span><span class="p">:</span> <span class="n">account</span><span class="p">,</span> <span class="s2">"amount"</span><span class="p">:</span> <span class="n">amount</span><span class="p">}</span>
+<div class="highlight hl-ipython3"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">_fake_llm</span><span class="p">(</span><span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">system_prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Deterministic stand-in for a model. Routes on the [role] tag in the</span>
+<span class="sd">    system prompt so the notebook runs with no API key. Both replies keep</span>
+<span class="sd">    every number (35%, 18%) intact, so the fact-check honestly passes."""</span>
+    <span class="n">role</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">system_prompt</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"[role]"</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"[/role]"</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="k">if</span> <span class="s2">"[role]"</span> <span class="ow">in</span> <span class="n">system_prompt</span>
+        <span class="k">else</span> <span class="s2">"unknown"</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">role</span> <span class="o">==</span> <span class="s2">"rewriter"</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span>
+            <span class="s2">"In Q3, GMV expanded 35% YoY. The growth was led by 3C "</span>
+            <span class="s2">"(category 4) and apparel (category 7), with active buyers "</span>
+            <span class="s2">"increasing 18</span><span class="si">% i</span><span class="s2">n the same period."</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="n">role</span> <span class="o">==</span> <span class="s2">"factchecker"</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span>
+            <span class="s2">"verified: numbers in the rewrite match the original draft "</span>
+            <span class="s2">"(GMV 35%, active buyers 18%)."</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="s2">"[no role]"</span>
 </pre></div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=46fc175c">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=lg-demo-md">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Assemble-the-demo">Assemble the demo<a class="anchor-link" href="#Assemble-the-demo">¶</a></h2><p>Same hooks as the langchain/ version:</p>
-<ul>
-<li><code>amount_threshold</code> (PRE) — blocks transfers over 1M</li>
-<li><code>blocklist</code> (PRE) — blocks sanctioned accounts</li>
-<li><code>output_schema</code> (POST) — blocks receipts missing required keys</li>
-</ul>
+<h2 id="Assemble-the-demo">Assemble the demo<a class="anchor-link" href="#Assemble-the-demo">¶</a></h2><p>A two-step pipeline that demonstrates the information-starvation guard:</p>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>Model</th>
+<th>Gate</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rewrite</code></td>
+<td>Sonnet</td>
+<td>length 80–600</td>
+</tr>
+<tr>
+<td><code>factcheck</code></td>
+<td>Opus</td>
+<td>starts with <code>verified</code> or <code>discrepancy</code></td>
+</tr>
+</tbody>
+</table>
+<p>The key line is the <strong>fact-check template</strong>: it reads both <code>{user_input}</code> (the original draft) and <code>{rewrite}</code> (the transformed version). This is the information-starvation guard — the rewrite can mutate its own output all it likes, but the fact-checker always compares against the original source. The lecture-opening bug ("GMV 53%") cannot happen here.</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=0c0e207f">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=lg-demo">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [9]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [7]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="c1"># Hook configs — imported from the shared shared.py, fn inlined in each dict.</span>
-<span class="n">all_hooks</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="n">amount_threshold_hook</span><span class="p">(</span><span class="s2">"amount"</span><span class="p">,</span> <span class="mi">1_000_000</span><span class="p">),</span>
-    <span class="n">blocklist_hook</span><span class="p">(</span><span class="s2">"account"</span><span class="p">,</span> <span class="p">{</span><span class="s2">"BLOCKED-999"</span><span class="p">,</span> <span class="s2">"SANCTIONED-001"</span><span class="p">}),</span>
-    <span class="n">output_schema_hook</span><span class="p">([</span><span class="s2">"status"</span><span class="p">,</span> <span class="s2">"tx_id"</span><span class="p">]),</span>
+<div class="highlight hl-ipython3"><pre><span></span><span class="c1"># A two-step content-editing pipeline: rewrite, then fact-check. Each step</span>
+<span class="c1"># does ONE thing, with its own model and a cheap gate between steps.</span>
+<span class="n">EDITING_STEPS</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">StepSpec</span><span class="p">(</span>
+        <span class="n">step_id</span><span class="o">=</span><span class="s2">"rewrite"</span><span class="p">,</span>
+        <span class="n">system_prompt</span><span class="o">=</span><span class="s2">"[role]rewriter[/role] Improve clarity, preserve all numbers."</span><span class="p">,</span>
+        <span class="n">prompt_template</span><span class="o">=</span><span class="s2">"Draft:</span><span class="se">\n</span><span class="si">{user_input}</span><span class="s2">"</span><span class="p">,</span>
+        <span class="n">model</span><span class="o">=</span><span class="s2">"claude-sonnet-4-6"</span><span class="p">,</span>
+        <span class="n">gate</span><span class="o">=</span><span class="n">length_gate</span><span class="p">(</span><span class="mi">80</span><span class="p">,</span> <span class="mi">600</span><span class="p">),</span>
+    <span class="p">),</span>
+    <span class="n">StepSpec</span><span class="p">(</span>
+        <span class="n">step_id</span><span class="o">=</span><span class="s2">"factcheck"</span><span class="p">,</span>
+        <span class="n">system_prompt</span><span class="o">=</span><span class="p">(</span>
+            <span class="s2">"[role]factchecker[/role] Compare numbers across versions. "</span>
+            <span class="s2">"Begin your reply with the single word 'verified' if every number "</span>
+            <span class="s2">"matches, or 'discrepancy' if any differ — that one-word verdict "</span>
+            <span class="s2">"is the gate's contract."</span>
+        <span class="p">),</span>
+        <span class="c1"># Reads BOTH the original draft and the rewrite — the information-</span>
+        <span class="c1"># starvation guard. The rewrite can never hide the source.</span>
+        <span class="n">prompt_template</span><span class="o">=</span><span class="p">(</span>
+            <span class="s2">"Original draft (source of truth):</span><span class="se">\n</span><span class="si">{user_input}</span><span class="se">\n\n</span><span class="s2">"</span>
+            <span class="s2">"Rewrite:</span><span class="se">\n</span><span class="si">{rewrite}</span><span class="se">\n\n</span><span class="s2">"</span>
+            <span class="s2">"Verify every number matches the original."</span>
+        <span class="p">),</span>
+        <span class="n">model</span><span class="o">=</span><span class="s2">"claude-opus-4-6"</span><span class="p">,</span>
+        <span class="c1"># Anchored verdict: the reply must START with 'verified' or</span>
+        <span class="c1"># 'discrepancy'. A substring gate would be wrong — 'unverified'</span>
+        <span class="c1"># contains 'verified' and would wrongly pass.</span>
+        <span class="n">gate</span><span class="o">=</span><span class="n">starts_with_gate</span><span class="p">([</span><span class="s2">"verified"</span><span class="p">,</span> <span class="s2">"discrepancy"</span><span class="p">],</span> <span class="n">name</span><span class="o">=</span><span class="s2">"verified-or-discrepancy"</span><span class="p">),</span>
+    <span class="p">),</span>
 <span class="p">]</span>
 
-<span class="c1"># One graph with the healthy tool, one with the broken tool.</span>
-<span class="n">sandwich</span> <span class="o">=</span> <span class="n">build_guardrail_graph</span><span class="p">({</span><span class="s2">"transfer"</span><span class="p">:</span> <span class="n">transfer_funds</span><span class="p">},</span> <span class="n">all_hooks</span><span class="p">)</span>
-<span class="n">broken_sandwich</span> <span class="o">=</span> <span class="n">build_guardrail_graph</span><span class="p">({</span><span class="s2">"transfer"</span><span class="p">:</span> <span class="n">broken_transfer_funds</span><span class="p">},</span> <span class="n">all_hooks</span><span class="p">)</span>
+<span class="n">chain</span> <span class="o">=</span> <span class="n">build_chain_graph</span><span class="p">(</span><span class="n">EDITING_STEPS</span><span class="p">,</span> <span class="n">_fake_llm</span><span class="p">)</span>
 
-<span class="n">show_graph</span><span class="p">(</span><span class="n">sandwich</span><span class="p">,</span> <span class="n">alt</span><span class="o">=</span><span class="s2">"Guardrail Sandwich graph"</span><span class="p">)</span>
+<span class="n">show_graph</span><span class="p">(</span><span class="n">chain</span><span class="p">,</span> <span class="n">alt</span><span class="o">=</span><span class="s2">"Prompt Chaining graph"</span><span class="p">)</span>
 </pre></div>
 </div>
 </div>
@@ -8293,23 +8325,136 @@ a.anchor-link {
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedImage jp-OutputArea-output" tabindex="0">
-<img alt="No description has been provided for this image" class="" src="data:image/png;base64,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"/>
+<img alt="No description has been provided for this image" class="" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAALgAAAF9CAIAAAA4AzUjAAAQAElEQVR4nOydB1wT5//Hn0vYeyggG8FRFVFwVKu2daHWWkfrqKtWf2rd1tZV9/g5q3XUuvi5/SsOXLXWOqtWUVEECioblD1khiQk+X+TkxghwAHJ5XL3vGt55Z577i65+9zz/T7fZxnIZDKEwdSGAcJgKICFgqEEFgqGElgoGEpgoWAogYWCoQT7hSIUCJ/eLEpPEogEUokEiYUygodkUvkugiAgOkDwCZlEpthEECtQ7uXzeRKJ/BOPT0gVGXg8QiqVKQ8kz8834EnKpeQu1XQ4Cs5DbirPKU+HqxDvNhV7eTKpVPU7Gxjz4AhDU14jZ6O23a3tHEyQriFYHEcJ+TU1K1UkFsn4BoSxKWFswgcplIvgRyNE/mgeQlLFU5QpUhTpyoeq1Mc7YfHg2cvk2Qj5gSRwckm57O05ee/S5UfBf1JCsVFxRSRXCe99oSBeRbYK+MZwaalIKJWLWyw/la2DQd/xDo2czJCOYKdQjm9MzssQm1nxfPwsegxxQHpO6JXc6NDC0kKJiTnvmyUefCM+oh22CeWfS9nhtwqsGxl+OcvZ2MwQsYtTW1MyU0SerUwH/scF0QurhHLy55Q32eKBkx1dmlog9rJvcRzfkP/tSi9EI+wRyo0TmSnPS75Z0RRxgJNbk8uFaPRCD0QXLBHKsfVJojLZhBW0vmS6JXhrSkGO+D9rvREt8JD+c3HPqzKBlFMqAYbPdQdX7MjaREQLei+UlJfFKbFlE1dywuJUArQiKJHePp2JtI/eC+VyUEabrpaIq/Sf6BT1TxHSPvotlJvwMsnQx0MdEVdx8zY3s+Kf3JKCtIx+C+XFo6Jm7dlcE6bCpyPsc9JESMvosVCS/i2GeHyvUU6I23h+YGVoyLsRrF1PRY+F8uivfHMrur9/cHDw8uXLUd1ZuHDh+fPnkXawdzVKjilF2kSPhQJRBEcvuptVo6OjUb2o94FUaO5vXlYsQdpEj4UCjaueH5gi7ZCUlARlQJ8+fXr37v3999+Hh4dD4uTJky9duvT777936NDh+fPnkHLy5MkZM2Z88skngYGBixYtevXqFXn4iRMnIOXWrVudOnXavHkz5E9LS1u9ejXkRFrAt4utVIpEpVr0VPRYKNBS79XaHGkBkUgEmuDz+Tt27Pjtt98MDAzmzp1bVla2d+/eNm3afPbZZ48fP27ZsiWoZ9OmTX5+fiCFlStX5uXlLVmyhDyDkZFRSUnJ6dOnV61aNXz48Hv37kHi0qVLQTpIO/D4KP7fEqQ19LXjkqCoHJoeTC2MkBZITk6Gpz5q1ChQA2yuX7/+yZMn5eXllbL5+vqCy+Lu7g5Kgk2xWAx6KigosLa2JggChDV+/PiOHTvCLqFQiLQMweMV52mxNUZfhSLvbyQjkHaAZ29ra7tixYoBAwYEBARAmQG2o2o2KHLA1vz8889RUVFQfpCJoDAQCvm5devWiDakMqS1G4L01/SYW/LhxkjEWvHgjI2N9+3b161bt+PHj0+cOHHw4MGXL1+umu327dvgvrRq1QoyP3r0aOfOnZUygAFCdCGVyky0WQfUYx+FZ4DiIouRdvD09JwzZw64rlu2bPHx8Vm2bBnpvaoSEhLSrl276dOnN2/eHGxNUREdofTqkEqQewst6lKPhcI3IFK0EzyAKs+FCxfgg4mJSY8ePTZs2ABeSExMTKVs4I44OLzrZ3njxg2kI+IiCuCvtb226oBIr4ViZW+QllCGtAAoAGorv/zyS2pqKji2Bw4cAE8WPBXY5ebmBh4JGBrwRaAgefDgAdSAYO+xY8fIY9PT06ueEGwZSEqZGWmaqHuFhsZIq+ixUFp3sS7K04qPAppYvHjxH3/8MWTIkGHDhj19+nT37t1Nm8p7MgwdOhSsDJib2NjYadOmde3aFdyULl26ZGRkQA0Z/JVZs2ZduXKl6jm//fZbkNe8efMEAgHSNFmpQtdm2o096ncPt10/xAX0se0caI84TGGe6PDqlBlbfZA20e/WY/eWps9uv0Hc5vyuNHNrrQ/g0O+RggMnueycGxdxJ69tdzu1GWbOnBkZGal2F/gKZKCsKhBB0VKsHajuzBKJBEr36r7StWvXqttVkFuu7eIEsaBzdeiVnCc33ny3Uf2dKi0thQegdlcNQjE1Na1uV8OpoRZdw1eytFTfiy9oSZydk/GQGW5Iy7ChF/7RdckEQevYBYZw5XB66otSejris6EX/phFHmUlkjM7UxGXCL2SlRhZQttwDfYMADu+MZnPl42Y54k4wK0zGS8elUxZT5NKEMuGlAYtS+DziW+Ws3yAz/ENyUV54ikbtO7AqsK2Qepnd6amxQu925r1n+CMWMftsxmRd4qt7PnjltD9MrBw2ov0hNJLQenCUlljN8Meg+2b6P+A9aJ80dVjmenxQmgH/XCArf+nOggwsnYinaj7+Y+u5JcUSvkGyNicb2HDN7PkGxkR5RI1/jufj6pUosnpk9ScmZyYSSWjfJ6cyolITQpS9EOTVqmt8wgkfT8nn4fKRZKSImlJQbmgWAKH8A2R70dW3b7Q2VwvbJ5xiSTsei40Mhfkl0vEMqlUVq6ur5lycqX3UJkm6b1k4r2bJlNs8HlVVKXucHChJGouVFlTBkbyacDgW0HI1a2ZSZeBup8LiP1C0TYnT56EFub58+cjVoNnhWwoNYRT2QQWSkPBQsFQAgsFQwmxWGxoyLZZBavChrYe3YJLFAwlsFAwlMBCwVCCIz4KFkpDwSUKhhJYKBhKYKFgKIGFgqEEdmYxlMAlCoYSWCgYSkgkEiwUTO2Aj4KFgqkdbHowlMBCwVACCwVDCSwUDCVwwA1DCVyiYCjh5OTE47G/RykWSkPJysrSxoygTAMLpaGA3cFCwdQOFgqGElgoGEpgoWAogYWCoQQWCoYSIJTq5jxmE1goDYXP5+MSBVM72PRgKIGFgqEEFgqGElgoGEpgoWAogYWCoQRUj3EcBVM7HClR8MzV9SQwMDA7OxvuHkEQPB5PKpXCZ09Pz5CQEMRG8KyQ9QSEAvoAu0P2g4S/RkZGo0aNQiwFC6WejB492t3dXTUFNgcNGoRYChZKPXF0dOzbt69yEwxQ//79TUy0u5y5DsFCqT9jxoxRFiqurq7Dhg1D7AULpf5YWFgMHjwY3BT43KdPH2tra8ReWFvrCf0zpyCrvFwR4FAunER+UP2rpHIe+RJg8pWZqmYmF+wiU6CyExoaKpVKAgICTExMK2VWPYrcw+MR0vdX++IRhFSRSfUohCqvHgZqNLXi9/iiMdIRLBRK6B85Ydff8Azg5vLEQsUz4BEy6buH8fYvD8mk745SbpIfePIVvWTKbKoPmFwB7O1zJd4uAUYoHi9kRlL5w6+4nMrtJWQgPTVCqUhRfiAUpbzqdwMMjUCUMrEIubcwGTTFFdEO24QSdf/N32dzug+x92xti1hHUZ7g/J7XbbtafzSI7qKFVUKJuJd373zemJ98EKs5+XO8s5fpAHrX62WVMxv2V34TT9ZWUJW0+tA6OaYU0QurhFJWImvWgc1VDxLfjxqBB5ObKUA0wiqhSMqRsRknmjmlUiQoQHTCstsq4xOICyjqRLT+VNzNQC8hCITorYVgoeglZIgO0QjbhCKTccL2KMJ7uERpABALRVxApmhKoBGWCYWQIU6UKPJGA+yjNAAwPJwoUeQtUPT+UNb5KJwpUd62MtMF20wPN8Io2JltKDLEDdMjU7hjdILjKHoJoej3QifsEoqMK3EURZcpWn8pu/rMMkkkCQlxn/bqEBHxFGkBsrckohG2da5mTsDNxsZ23NhJDg5O8DkxMX7k1wOR5oBGQZr9duyjaAs7O/sJ30wlP794GY00Cv1xFE4P1zhz9sSwrwLv3rvVq0+nHb9uRoo1Vfbs3T5h4vDPPu+xYNGsBw/uQmJKShIYkWfPnpBHXbt+BTZDzgWTm+Te6Jio5Svmr1q9CA6Hzb/v3FCangMHd2/YuDIzMwM2T50+Bofk5eWuWfsTlDGDh/Zeu25pamoyYjysEgq8ZHUKuBkZGZWWlly4cHrRwlVDvhgOKdt3bDx95viQwSOOH7v4cY9ey1fOv/33dXd3TwcHx3+jI8ijoqLCHR2dois2I6PCLcwtWrZoZWhomJAYB//Wrt7S1re98ipQrowcMQ4OuXn98VdfjpZIJHPnTQl/FjZ3zuL/7T9pa2M3bfr412mvUF2h1/SwSijyMRPSOtw/yF9WVjZy5Pjevfq5uroLhcI/r176etQ3gz4fZm1lPaD/F7169jt8ZB/kbN+uY0xMFHnUs4gn/QI/h7/kZmRkeIcOH/J4PDhbRkbayuUbu3btAQ5KdReF/FAILV60unOnrmCevps6x8ra5syZ46iuYNPTAGQEr87xhZYtWpMfXr6MEYlEHTt0Ue5q5xcAFqSgsMC/fceISHn9paDgTVJSwqDPv8zNzQFrghQlir9/JzK/h7tXrcOPIT+UPXBCchPkBVdRyo4ibwcp0Qh2ZuUGiPxQXFwEf2fOnlgpQ35ebkBA58LCAigJwLI082kBJUGrVr4REU86deqalvaqU8eub09lbFzr5eAqYrEY/BXVxBpKILUoIvg4hK8j7BvJR1XN+/4nFxc31XSo4pqZmXl5eYObEhf/0ret3P8ALwQ2eXy+cxMX8D8QZeztG5mamq5ds1U1kc/jI2bDKqHIGtYfxdXF3VhRJLRv9/Z1z8/Pk8lkoBJ5YvuOUPFJSIgdM0Ze5Pi2abd3/w6oJYGDUpeLIG/v5gKBAMTn4vx2ZGha+msb67qPa6TXa2CXMyuP4aN6A4L4ZvwU8F7B3wRnBeo7P8yf9su29eRe/3YglDB5idKmHWy2adMuOTkxLCxU6aDUAHjK4NPcvXsLasIB/p3AYG3evBpcHPB4zp0/NfW7sVeuXEB1hd7GHtwV8j2gHgtv/PETB588eWhubtG6Vdt585aQu0AQGZnpUFW2tbVDijkvPD2bgqvbvsItrYEPO3cDeS1d/sP4cZO/GT953dpfLlw8s2rNoujoSDc3j969+w8dOhIxG1aNPd45N/azSa6NXE0R2zm0Im7IVBeXFvT9Unb5KDKu9JlFtPe7YZVQwO5wpM8sIuf5oRHcZ1YvUU7dQxssqx4jjgzrkYtEigNu9UUxOxZXTA/NsC7gxo1++DI8UrAhgCdLsKi2XwPY9GAYCq71YCjBNh+FI3EUhY+C6IRtPgriBgSBGwUxjAQLBUMJVgmFz+dJuGF9+AbySACiEVZ1XOIZyDITaJ2mVyeUFIskEuTW3AzRCKuEYtfEKO5ZIWI7/5zLMrem+8GxSihfzXYvLZLcOpWK2EtetiAjsWzcEg9ELyxcr2ffT3EGhsizjWWjJiYEr5IT9nZKK+VvJpfvUaViXad3GVRnmCDX6lF73fcOVKzO8+6S7+dTdO2VVZz13X5lHEiZpLwceCQF2cKk6KLC7PJpm3WwfAg7VwA7vSMlL10sEcskdVm5yYL2jgAAEABJREFU+u1aTbIaR2u+v/e9pZtUdlV3DqUu1WeotCqZSj4en+AbIitb/qj5nkgX4AWyUXh4+I4dO4KCgpAuWL16ta+v7+DBgxGz4bpQRCLRtWvXBgwYgHTHzZs3/fz87OzsEIPhulAKCgqsrKwIXfdiEQgEpqaMHjzA6flRJkyYkJycrHOVANnZ2UOGDEEMhrslyoMHDxwdHb28vBAzSFDQu3dvxEg4KhSJRAI/3MAAN3VRhYum5/r164sWLWKmSpYsWXL79m3EPDgnlLy8vKKioo0bNyJGsmbNmujo6Pz8fMQwcBwFQwlulSiDBg3KzMxEjOfly5fz589HTIJDJcq5c+c6dOjg6uqK9IHQ0FCoug8fPhwxA2x6MJTghOk5c+YMtOYgPQSc7piYGMQA2C8UiGLB35kzZyI9BDyVPXv2FBcXI12DTQ+GEiwvUb744ovy8rr0SWEksbGxUK4gncJmoezatWv//v0siNM3a9bMycnp4MGDSHdg04OhBDtLlGPHjp09exaxjqCgoKysLKQLWFiiPH78OC4ubuRIps/cWj969Ojx999/I9rBpgdDCVaZHog3TJs2DbGd+Pj469evI3phlVBWrFixadMmxHa8vb1fvHhB87ABbHr0FYgP8RQgWqBbKCKRSCKRIE0D/p2Liwu8amr3MryDe735/fffP/nkE3Nzc6R96BZKQUGBWCxGGqWsrAz+1rBGm52dHW1vHp2UlpYGBgbeuXMHaR82CKVW2CoUpCihCwsLGzVqhLSMft8+sGJMaFnVIUZGRkKh8Pnz50jL6LdQ4GWysLBA3Aacs5CQkNOnTyNtgk0PS4DgSpMmTcjlD7WBvt4+8OPU9h+AyH16ejriHlDjA61oo0ZJopdCAZVACVG1/0BmZuabN28QV2ncuPGgQYOQdtCx6UlKSpo6deq2bdtOnjz5zz//gPf+8ccff/vtt3y+fB3g6OhoaAeGKKS1tXXnzp3HjBkDRSsUJFOmTPH09Fy6dCl5koULF4KzMmnSpMWLF5MpXbp0Wb58ufIqXDA9JLm5uVCgtmnTBmkaHd8+Q0ND+AtCgcDRxYsXFyxYcObMGbJ19PXr1/DgIUaydevWZcuWJSYm/vjjj7AJOps3b969e/eePJEvUw9RhKioKDjQ399/1apVkHLgwAFVlXAKe3t7d3d3eBuRpmHEe9a9e3doPQfR+Pr6gkcWGxuLFNPLgHEBibi5uXl4eMyZMwdsMCRCmLVVq1YDBw7csWMH2KC9e/eOHTsWMiCMAisrq/Xr11+9ehVpFEYIxcfn3ex1EJAmQyNgd1q0aAFGh0x3dHQEDUG5Qm6CeYL4waxZs8BaffXVVwijwrp16+AdKyoqQpqDEf1J1ToQIJeXL1/269dPNVE5ehucFXDcDh48OG7cOI74H3WiZ8+eSKMwt+MxeKCtW7cGHZCbJSUlEIUEG0xughk+f/48GKzg4GC4KU5OTgijQk5Ozty5c48cOYI0BHPfRS8vr+zsbPBa/BQEBASAdMBfIffu3r0bvDbwdps2bbp9+3aEeR+pVApaQZqDuUIZOnQo/FoQBNR0Xr16dfTo0enTp0N1GnY9fPjw7t27s2fPhs/w3kRERPz111/wmRyADpUmGto+GA64bhosThCThWJpaQkqMTExmTlzJsRIwsPDwXUFtxds0JYtW8CBdXZ2hmxQxgwePHjfvn1gjCClT58+cIP+97//IW4Dfptmm5T1pq0HfHioP9fQ6aQGuBNwU6JxH0VvRtEZGxvj2g11NO6j4NZjdgJCycvL06D10ZvbB+E1Fgw3pw2N+yh6IxSRSISFQh2wO9CygTQH9lHYCfZR6gP2URoO3UIB8wG/AdUdiKpB3bh58+ao7kDsH2EaBt2mp97T2ty/fx9CcNroksNKuBtH6datG/ZRqKP3PgqGHvTeR6k30BAIX7Vz584Iowv0pjCPjIwMCwtDGGpwN44CZQkEZxGGGthHwVCCuz7Ks2fPCgsLu3fvjjC6QG98lOfPn0MoBWGowV0fxc/Pz9PTE2GogX0UDCW42x8lOjr6xo0bCEMN7vZHSUhIYOY6r8yEuz5Kq1atlMNLMbWCfRQMJbjro8TFxf3xxx8IQw3u+iipqan0TwCvv3DORxkwYEBGRgZBvDWR/v7+8Bc+P336FGGqh0Njj0kmTpxoamoKQuFVAIkdO3ZEmBrh0NhjkmHDhrm7u6um2NrajhkzBmFqhIs+yujRo1WnT/Xx8enRowfC1IjGfRQ9EMrAgQOVy2bY2NgMHz4cYWqDcz4KCRQqVlZW8AHMUK9evRCmNjTuo1Cq9STGFErF/KrpBFRAKj5IFaKra/COeP8QGSIIRUKldC+HLu2b93udlhbYbUh8RInqsao5ya9B1HwhQoZkRNVLVHwB2Kf2BHKkMpmdE9/eUQ9W/6F7fpQTmxLzMiXw9CS1DfuVoepvMGVqP4lcSDV9YZlCaw26RA0XV7wsBoaoQx/bgJ72iMHQOq7n6MYEUYm0zxhHJy9LhKkg9M/0+5fyHdyN3XyYu7AHfW09B1cm8I3Q4GlNEUYdR9bGfdjfxv9Tra+oVD9oauv5935+WYkUq6QGfNpZhv2l+ZnENQVNcZSYh4UmFnj8Zk10+cxRWCbT3rInDYSmOIqwjOAb6E1XFV3B4xHp8QLESDTuo6hXQ7lIKpM2vBLDcqQSqE3zESPRTRwFo3dwtz8Kpk7Q1B+F4BF1DrJyD8UdYqiBpqmtRybFXWlrh5CR/zMR7KMwCQIxttylyUch5CCM/kKXj/K2eRXDCMRicV3XkwQfZcmSJfVwU8zNzU1N1TSPG1RzGeyjUIPH0NcJTI+trS3SHNWZHoShhJS575NmJ9GsptaDixNqyBhcPVYu1KkRcK2nQTA53FS/GcKro1rTU9c3JSEhbsHCmX0CPzx2/ADSDq9epXzaq8Ojxw+QJjhz9kSvPp1QA5CXu0w10lR8lClTpuzcuRNRPKHaVLgFdfVmr9+4EhH5dOXyjb169kN1JzExfuTXA5FeIRcJg420Zn2U6k1PHd+VkpJiJyfnrl3rOeLmxctohNEcYHegRq3Bio9mfJSZsydGRT2DD2AaJk2cPvrrCWdDTj54cCcmJsrI2Nivrf/EidNdnF3JzPfv39m2Y0N2dpaPd/PBg4f37zfowMHdh4/sJw+f9t3cr74cXVhUuGfPtst/nLe2tukQ0Pk/k2Y6Or5bAvvnLWsv/R5ib9+oR/ees2bOJxPz8nJ3/bYl6t9nZWVlHTt2GTdmkpubB7krJSXp561rIyKeOjdx6d6957cTvqu03oZEIgG7mZGZ/uvOg9ZWdZmFRUeWp7y8/NChQw8fPszKymrduvWgQYM6dXprRkeMGAGhNlDJsWPHTExMAgICpk6dSi4snpycvHnz5tTU1LZt23799dd1uaCGWo93bAv6YtCXnp5Nb15/DCqJjAzfsXNT69Z+q1ZtXrhgZX5+3tr/LiFzgkqWLv9h4rfT16/b3q3bpxs3rbp2/cqEb6aOHDEOpACHg0rgLixcNCsnN3vLz7tnzvgxKztz4eJZyuW/QFVt2/rDruFfjQk5F3zj5lWkeNJz500JfxY2d87i/+0/aWtjN236+Ndpr2BXRkb6jJkTfNu0+3nzbyNGjAMTuX3Hxkrff+PmVS9fxmzcsLNuKkE6C+Hv2rUrJCQE9AFy6d69+5o1a+7cuUPuMjAwOH36NJ/PP3HixL59+/7999+jR48iRdQOQnCNGzfeu3fvxIkTIU9eXh71K1ZfojTgFrRq5XsgKNjV1Z1cdKVcLF68ZG5BYQE8BnjMUAz06d0f0jt2+BAMVmlpSaXDH4TehaLo0IHT7u6eSL6ysUfwqaNQYJB727frQB4OH86GnIiMfNrz074gTXmxsfk3//by8evfTZ1z75/bZ84ch/Lm9JnjxiYmoEW4d7AXypIXL94zc1CY3bx5dcvm3VDeoLqgGICkgyJFKBReu3Zt+PDhn332GWwGBgaCGo4fP66chNfZ2XnkyJHkZyhRYmNj4cO9e/eys7OhRHFwcIDNadOmjR49mvpFqwvhE4hXf6XAI0lLe/Xrrp9jnkeVlLzVwZv8PEsLy/iE2N6Kx0wydcrsqofHx8eamZmRKgGaN2u5ZPEapKj1wF8oG5Q5ra1syHnPI6PCDQ0NSZWQ37+dX8CziCdIXh2LbdasJXwlcle/wM/hH3rbnkVAeQbaXb5sfZs2fqiOKDSigyIFHrxIJAIFKFPAlFy9erWwsJAcT9msWTPwUWDTxsbG0tKytLQUEtPS0sASOTo6kofY2dlB6UL5mjX5KPV/V+7du71k2TywQVMmz/b2bvY4LHT+ghmQDt4D/ABj41oWuYZipoY8ajvzFhcXQdEKLo5qoo2NLXk28kMloFoHBmv9huXw2cS4PutuK86C6Id89+bNm1cpHSJspFBIKnX8Bt1UasQxNjZGlFEvFJmc+gvl0uUQX9924NWSm/AUUcU3gzobPLmaDzczMxcISkFS1Ct44NjCXVi7ZqtqIp8nL0XMzS1Kqlg3JfO+/wkKnvUbV4CttLW1Q/oA6ZnOnj0bTIxqumoJUTWOAhoSCN7rCk6WNBTRSlfIwsKCxo0clJt37rydHxbK/xYtWoGZUO7at3/nr7u2VDq8ZYtWUPa8eBlDboLzMef7yWCPUPV4ezeHu+Dg4ASOC/nP0bGJj08L2AVX/PffZ0pf+PqNP3/4cRr5tsHdhDrX7JkLzEzNlO523dBFrQf0QRYGfhW4u7u7ubmpTg6CqsRRwDWBu5qYmEhuxsfH5+bmIspUE5nlNegOQL0X4qdPwx/D4zl1+hiZCJVP+PvF518+enT/ZPAR2Hv+wun/O3HIy0s+pQV4vrm5OXfv3kpNTe7Q4UMXF7e9e7ffuXsTzvPLtvXZWZkeHl41XDHAH6qHXTdvXp2ZmVFQ8Obc+VNTvxt75coF2PXZgMFg0bds/S9YQDjhvv077Bs1VrosABRFK1ZshBoTuMyoTkCpqwvTA4IYM2YM1H6joqLgp0F9Z/Hixb/++qtqnqptPV26dAFHftu2bSAXkMi6detU7VStVOPMwh1ogD//7bfToC6zZOn38JYPHTISasjp6a+hxvvT4jWBgQMLiwoOHd4LhhbsxeT/zBzQ/ws45MPO3cBLhZrz+HGTvxk/efPGXes2LFu2/EfFL+y+7r/bal21ct3aXy5cPLNqzaLo6EioKIHLPHSo3PMHCUJVHDT0x5UL8CIG9h04adKMSseCvzxu7H+geOsQ8GHTpj6IIoTOOkJ+9dVXTZs2DQ4ODg8PNzc3/+CDD8ASVcpTqa0Hsq1cuTIoKGjYsGFwH6CGXKeZwNWPPT60OkkmJYbN8UCY6jm0Im7wVBfXFlqfBaMeHZeQQij1iOLXreMShhJvZ1phKHT0R8FQgmBsJ3y6+qPwDQgpQ0dfMwgmdzNAmu6Pol4oknIZHntcK0zuMKrxPrN4pGDD4HkJN/sAAA7RSURBVEx/FDxSkJ1ARLFO8TQl1Rks9SUKj0dIsFAYA7R31nXYX1ZW1pw5czS4Hon6EkUqlWHTUytM9mVpHHuMhVIbTO4yS+P8KLjSQwEZU4sUmuZwwyMFKUIwtUihaQ43XOXRd/D8KBhK0OSjGBkSfENsfmoD7hCf2/PMGlsQ0nLc2FML4Mk18WLoShs0zeHm18OytAgLpSb+PvfayASp9pRjFDStKejd1tbCxuDMtgSEqYaUfwUfD2XuSiy0rtcT8uur3LQyv0/sW3bSZDukXiMQiEIv56REl45e4G7T2AgxFVrX6xky3TVkV2rYtbyHV3Kr69tQw0JLRK0dwGpdZKm2DFSmZaQ8dWOt3wYphn8gE1PUb7wDk1WC6FyvRxVBvqBYoN4Y8yWEhK/mDGQ/hUrnJipHveWbhLpQOBwun/RK9q4PWXJSwuHDR5cuW/b2yIrnL6vYVAxEqjgNoUh4N2MwofJD32mbPIlytbt3Z1P8IffwECFVnlaGGrswWh9KNL5eD6U4iqmtqamujU96jqhI+Lqxs348J51D95qCzEEikQiFwkpjnDDVQauPwiigIopVQh2OrnsMhIWF/fDDDwhDDe629ZSVlYlEIoShBqd9lPLy8jrN1MBlOO2jMDZezkB0E0dhArdu3bpx48aqVasQhgK6iaMwAbFYjH0U6nDXRwEHBd6SStN+YqqDuz6KAV6HuS5w10e5fPnys2fPFi1ahDAU4K6PAvF7xq5vz0Cwj4J9FEpgHwVDCe76KKdOnUpPT581axbCUIC7PgoEUZRzxWJqhdM+CnxVQ0NDhKEA9lEwlOCuj3Lo0CEoVCZOnIgwFNC4j6I3HZcEAoFmpzlkN9z1UaBRkCAIbIAowl0fBbuxdYIlPgq5bFedOH/+vLW19SeffILqCDc7xWncR9GNUOoh9uLiYj6fr3Y+/5rRrKnmLHrjzJqbm5uY1HdBN+6h8flR9MZHIfC8cnWBJT5K/UwPVHnqUahw0/Rwt60Hz7leJ2icZ5ZhWFhY1Fx/+fvvv/v16/fmzRuEwT4KhiLcHXtcVFRUj+gLZ2Ht2OPo6Ohjx469ePEComqdO3ceM2YMOXfB2rVroSzp2bPn5s2by8rKWrZsOWnSJPhLHrV///7r169DcAUCca6urghTATt9lNevXy9evBh0sHXr1mXLliUmJv74449kNyWo6cTExIAatm/ffu7cOXBTQDHkUZcUTJs2bdu2bU5OTqAzhKmApnlmaebmzZsgCJCIm5ubh4fHnDlz4uPj//nnH3IvtBtD+5azszPkgZLj1atX5FrxENTvrsDS0rJv377t2rVDmArY6aOA3WnRogUYHXLT0dGxSZMmUVFR5Ca5mDzEUaABGeo+SBFTgdpyWlqau7u78iTNmjVDmArY6aPAg3/58iVUblUTlauxkmvjgURKSkqUXVKgUJFIJKpNPzjAr8r9+/c/+ugjpDkYIRQ7O7vWrVuPGzdONdHKyqpSNmjuUS6oCGUMtBGq1oPAQiGMgv79+x86dAhpFEYIxcvLC9xVX19fpQ6Sk5NdXFyqyw92B6pCDg4O4OcqEx8+fIgwilsXEhKi8fKVET7K0KFDwabs3r0bKj7gqwYFBU2dOjUpKam6/KQz26NHj7t370JAFj4HBwc/f/4ccZ4nT55oqZmdEUKBaguoBH7ezJkzIUwSEREBFR8fH5/q8sO9gL+jRo0Ct+a3336Dv6GhoZMnT0bcbhKCamN6erqWGkH1pvW4EuDJFhQUgHNTa06OtB5DIxc4bfDKIe2gNyH8SsBNsbGxAVOFMAjFxsZC0FJ7KkH6KxSkqDZDoBZ3P/j9998hZALVRqRN9NX0KBGJRFAxVgbrqsJu0wNBSPj5VUMJGkePSxQSIyMjiMXB/ULcIzc398aNGzSoBLFAKEjhr0AzENfGEWZkZECIMjAwENGCbkyPNpxQaFkEM1T1xrE1tA8Wpx6DV+qN3gwppUJiYqKhoSEXOqaA9zpixAg6Jypjg+lRAk0BoHuw3IjVDBs2rHv37jRPZ8eqEoVkwYIFffr06d27N8JoDhYKBYB2IqgVk51X2MTly5dbtmzZtGlTRDusMj1KPD09oY2wsLAQsYgtW7aAt64TlSC2ligk0Ci9detWDw8PhGkwbBYKkJaW5ujoqO8L/Tx9+hRi2eB4Id3BTtOjxNnZ+dKlS3o9N/qdO3egNUe3KkGsL1GQojUEKpMPHjxAmAbA8hIFKeb0un//vj52SABzs3PnTsQM2C8UpBi3DPWFEydOIP2hpKRk9uzZM2bMQMyA/aZHCVSYN23aFBQUhDB1h0NC0SNWr149Z84crfZYqyucMD2qQLly/vx5xGAWLVo0duxYRqkEcbNEuXbtWnR0NF7RpU5g08MgDh8+/MEHH3Ts2BExD86ZHiVQrvz111+IMQQHBzs5OTFTJYjjJcqRI0fg2ZBBz2HDhhUXF//555+ILgYOHAj19osXLyJ9gLslCgA+I6mSIUOGJCcnZ2Vl7d69G9HCqVOnMjIy0tPTP//883v37h08eBAxG7xYBfr000+LioqQIi4XFhaGaAFacKRSKY/HA60sWLDg7t27iNlwukRBirKEVAlSjCiDQiU1NRVpGbjiq1evlFM3QPMCbZ3p6w2nhTJgwIBKsgChPHr0CGmZiIiISvPh5ubmfvzxx4jBcFoo/v7+3t7eJiYmyjFBQqFQOXec9gCnpKCggPwMlQlTU1M3N7d6rDBDJ5z2UdasWQMmAJRx48YNKEtSUlIgMT4+HhrkyJk1tMSzZ8/ID04KoGCD4sTe3h4xGE5Uj+MjCyNuF+Rni4UCqbQcXmKk/jdDKkEpkYAzUMgJF6p9vu33jyJ48hQeHxka8azsDFp2svTrbosYAMuFcuVwenJ0aXm5jG/AN7YwNLM1NrU0MTAwIKr2jYQnT8iqpBGEVIZqfNjkg1aTU570/s0lUCWFyhSaUz1KJpNKyiVlxeKSXIGwWCwWSkA0Tp4mQ6freFQba4Xy8M+csGtvEI+wbmLh3EKPJzTITs7LSS6UimRN25r1H++MdAQ7hXJ4bVJRfrlDU5vGXowotxtOYU7x64gcviGa/F9vpAtYKJTdC+IMTAx8PnRDrCPpSVppvnDaZh9EO2wTStCyBMTneXdioUpIspPys+Pf0K8VVgllz8I4E2tjj3Y6M+T0kPP6TUZ0/owttGqFPQG3o+uSCb4B61UCNHKxMW9ksmdRHKIRlggl/GZeQY64eTfWWpxKeLVvIpMSF/e/RnTBEqHc/yPfzo1ZnUy1jWt7h+QY+qb/Z4NQbp/JhEhpE30OltQDC2szQyN+8NYURAtsEMrLsGJzO/pmM6srZy5u3LRjFNICjb2ts1+JEC3ovVBK3wiFApmHnxPiHnYu1lBnfXiVjqnI9F4ody7k8Q25u9KtoSn/5ZMipH30vptBRrKQb6TFX/HoyaX7j0LSM+OaOPq08+3dvctIcgXmIycXQxTK36/fybOrhMJSDzffzwJneLi1QfJOLaXHTi+LS3gMh3TpOBRpExNLw4JsOsbf67/pKZSYWBgi7fDk2Z8nQ1a7OrdY/H1I/z7f/f3PifOXt5K7eDyD5NTIsPA/Zk89+N9ltw0MjU6cXUXuCj63Nic3dco3O8eP2pCRlfD85T2kNSwbWchomYhZ74UikciMzLQllIdh55t6tB/6+XxLC7tmTTsE9pp8L/RUUXEeuRdKjhFDltjbufD5Bv5tA7NzkiGloDD7WdS1T7uNhdLFytJ+YOAMQwMtzohsbmuMaIEVU5wbauVXSKXSxJSI5s06K1NAKzKZNDEpnNx0aOxpbGxGfjYxkUdxSgWFefnyIJijgxeqwM3lA6Q1jM2MEC0lit77KDwCyaRaaa4qLxdJJOIr13bDP9X0opK3JQpBqBFoSam8M6yxkZkyxchIi1V3+WoRtLzs+i8UAyQSaGVpDSMjE3jeAe0GtG3dUzUdbE0NR5mbyReEEYnfOZhlwhKkNcreiAksFCoYmfKFJdpag8W5SXNBWZFP0wBys7xcnJv/2sbasYZDbG3krZJJKRGkxYFDYuMfmptrq/9UcW4p34CO6IDe+yh2DoblZeVIOwzo811UzO3QsAtyfyU5/GjwT3sOTAeTVMMhNtYOnu5+f97Ym5WdLBYLj51aSqGDdf0pzReaWtDxEPVeKK26WpWLtOXOeXm0m/vdYfBeV2zot+fgTEFZ8YTRmwwNa6lojBq23N219S+/jftpzadmplad/AchrXX6EZWJXbzpWGeGDR2Xfpsfb+du5ehd+4qlLEMkEsXefj2dlh5MbKgeO7kbvXldjLhHytNsc2uaJuVmw0jBITPcfp0XV/ym1MLGTG2G0MfnL/65Xe0ucCOqMyUjhy5r84HGxgODixN0dJ7aXeD08KG9Sp0rM+zzBe3b9kXVUFYg+mIaTa2hLOkze3Hfq9fxopYfq18foayspFRQoHZXSWmhuZn6xRstzO2ghow0R15+mtr0srJiExP1K8aYm9koY3qViHvwythINvYnT0QL7OlcvXthnJmdmbuvI+IAbzKLXkfmTP+Zvv7V7OlcPXW9T2FGqaBEiDgAqCRwHK2vBKumvRj7k2v8vTTEdqKuJnbqa+vjR2sfYbYNABOJJHsXJjo2s23saYNYh6BYmBCaNmS6i7MX3V0/WTikVFQqDlqRwjfmNe/qjlhE4mP5eNJug+38euggYsTa2QyOrk98kyUxtzX26qD3Q8JSIjKLskqNzXiTVutmQUHE7vlR4iMLb53KERRL+UY8c1sTOzcrC1vmdtavhKC0LD+5uCi7VCyUGBoR7Xtad+qry/Eo7J9xKTtNcOtUdm66SKJoY1ZMaUS8132w0vw2hHxeNXn4670bU2liJMWkS6giTaY8jyIboZoi/yjvNCNDqulqLqHYS/Dlu+RHyRA0C1vZGXbub+Pjpz7SQyfcmrk6JbYoO1UsKC6XilWfOlGp0a7qbFyKqbgIVU2p5FERGlFFEdXNAiaftUvNXh5PZmTOs29i7O2LV9fA6CF45moMJbBQMJTAQsFQAgsFQwksFAwlsFAwlPh/AAAA//8JEJ5jAAAABklEQVQDANMg8mI/+LiyAAAAAElFTkSuQmCC"/>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=ec198b0a">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=lg-trace-md">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Small-trace-printer">Small trace printer<a class="anchor-link" href="#Small-trace-printer">¶</a></h2><p>The trace is intentionally short. It should help readers see the verdict quickly without turning the notebook into a log dump.</p>
+<h2 id="A-short-trace-printer">A short trace printer<a class="anchor-link" href="#A-short-trace-printer">¶</a></h2><p>The trace should let a reader see the verdict quickly without drowning in a log dump: one line per attempt (a status marker, the step id, the gate name and reason), then the final output.</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=59a4ca8f">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=lg-trace">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [8]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="n">_MARK</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">"success"</span><span class="p">:</span> <span class="s2">"✓"</span><span class="p">,</span>
+    <span class="s2">"gate_failed"</span><span class="p">:</span> <span class="s2">"✗"</span><span class="p">,</span>
+    <span class="s2">"retry_exhausted"</span><span class="p">:</span> <span class="s2">"!"</span><span class="p">,</span>
+    <span class="s2">"llm_error"</span><span class="p">:</span> <span class="s2">"E"</span><span class="p">,</span>
+<span class="p">}</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">print_trace</span><span class="p">(</span><span class="n">label</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">result</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Short, readable audit of one chain run."""</span>
+    <span class="n">completed</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"completed"</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">"-"</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">label</span><span class="p">))</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">"completed     :"</span><span class="p">,</span> <span class="n">completed</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"failure_reason"</span><span class="p">):</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"failure_reason:"</span><span class="p">,</span> <span class="n">result</span><span class="p">[</span><span class="s2">"failure_reason"</span><span class="p">])</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">"per-step audit:"</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">run</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"runs"</span><span class="p">,</span> <span class="p">[]):</span>
+        <span class="n">mark</span> <span class="o">=</span> <span class="n">_MARK</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">run</span><span class="p">[</span><span class="s2">"status"</span><span class="p">],</span> <span class="s2">"?"</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"  </span><span class="si">{</span><span class="n">mark</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">run</span><span class="p">[</span><span class="s1">'step_id'</span><span class="p">]</span><span class="si">:</span><span class="s2">10s</span><span class="si">}</span><span class="s2"> attempt </span><span class="si">{</span><span class="n">run</span><span class="p">[</span><span class="s1">'attempt'</span><span class="p">]</span><span class="si">}</span><span class="s2">  "</span>
+            <span class="sa">f</span><span class="s2">"gate=[</span><span class="si">{</span><span class="n">run</span><span class="p">[</span><span class="s1">'gate'</span><span class="p">]</span><span class="si">}</span><span class="s2">] -&gt; </span><span class="si">{</span><span class="n">run</span><span class="p">[</span><span class="s1">'reason'</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span>
+        <span class="p">)</span>
+        <span class="n">snippet</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">run</span><span class="p">[</span><span class="s2">"output"</span><span class="p">])[:</span><span class="mi">80</span><span class="p">]</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">"</span><span class="p">,</span> <span class="s2">" "</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">snippet</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"      </span><span class="si">{</span><span class="n">snippet</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="c1"># Only a completed run has a meaningful final_output. On failure the</span>
+    <span class="c1"># field holds the last SUCCESSFUL step's output (no reducer clears it),</span>
+    <span class="c1"># which would be misleading to print as "the result".</span>
+    <span class="k">if</span> <span class="n">completed</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"final_output  :"</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"final_output"</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">""</span><span class="p">)[:</span><span class="mi">80</span><span class="p">])</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=lg-run1-md">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h2 id="Mock-run-1:-a-clean-two-step-pipeline">Mock run 1: a clean two-step pipeline<a class="anchor-link" href="#Mock-run-1:-a-clean-two-step-pipeline">¶</a></h2><p>The draft has a typo and the all-important "35%". Both steps pass their gate, and the fact-check verifies the numbers against the original draft.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=lg-run1">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [9]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="c1"># The raw draft has a typo ("byuer") and the all-important "35%".</span>
+<span class="n">draft</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">"q3 gmv grew 35% YoY, driven by cat 4 (3C) and cat 7 (apparel). "</span>
+    <span class="s2">"active byuer count up 18%."</span>
+<span class="p">)</span>
+
+<span class="n">result_ok</span> <span class="o">=</span> <span class="n">chain</span><span class="o">.</span><span class="n">invoke</span><span class="p">({</span><span class="s2">"user_input"</span><span class="p">:</span> <span class="n">draft</span><span class="p">,</span> <span class="s2">"prior"</span><span class="p">:</span> <span class="p">{}})</span>
+<span class="c1"># `completed` is derived here, after the run: the chain finished cleanly iff no</span>
+<span class="c1"># node set a failure_reason. (A node can't know it's the last one, so the graph</span>
+<span class="c1"># doesn't set this itself.)</span>
+<span class="n">result_ok</span><span class="p">[</span><span class="s2">"completed"</span><span class="p">]</span> <span class="o">=</span> <span class="ow">not</span> <span class="n">result_ok</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"failure_reason"</span><span class="p">)</span>
+<span class="n">print_trace</span><span class="p">(</span><span class="s2">"Mock run 1: clean two-step pipeline"</span><span class="p">,</span> <span class="n">result_ok</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>
+Mock run 1: clean two-step pipeline
+-----------------------------------
+completed     : True
+per-step audit:
+  ✓ rewrite    attempt 1  gate=[length[80-600]] -&gt; length[80-600] ok
+      In Q3, GMV expanded 35% YoY. The growth was led by 3C (category 4) and apparel (
+  ✓ factcheck  attempt 1  gate=[verified-or-discrepancy] -&gt; verified-or-discrepancy ok
+      verified: numbers in the rewrite match the original draft (GMV 35%, active buyer
+final_output  : verified: numbers in the rewrite match the original draft (GMV 35%, active buyer
+</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=lg-run2-md">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h2 id="Mock-run-2:-a-gate-catches-a-bad-step-and-retries">Mock run 2: a gate catches a bad step and retries<a class="anchor-link" href="#Mock-run-2:-a-gate-catches-a-bad-step-and-retries">¶</a></h2><p>A stateful fake LLM returns a too-short draft on the first call (failing the length gate) and a full one on the second. The trace shows the first attempt rejected and the retry accepted — bad output never leaves the step.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=lg-run2">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -8317,35 +8462,76 @@ a.anchor-link {
 <div class="jp-InputPrompt jp-InputArea-prompt">In [10]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">print_trace</span><span class="p">(</span><span class="n">label</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">result</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">"-"</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">label</span><span class="p">))</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">"final_status:"</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"final_status"</span><span class="p">))</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">"tool_output :"</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"tool_output"</span><span class="p">))</span>
-    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"tool_error"</span><span class="p">):</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">"tool_error  :"</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"tool_error"</span><span class="p">))</span>
-    <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">"pre_outcomes"</span><span class="p">,</span> <span class="s2">"post_outcomes"</span><span class="p">]:</span>
-        <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">):</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">:"</span><span class="p">)</span>
-            <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">result</span><span class="p">[</span><span class="n">key</span><span class="p">]:</span>
-                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  - [</span><span class="si">{</span><span class="n">o</span><span class="p">[</span><span class="s1">'phase'</span><span class="p">]</span><span class="si">}</span><span class="s2">] </span><span class="si">{</span><span class="n">o</span><span class="p">[</span><span class="s1">'hook_name'</span><span class="p">]</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">o</span><span class="p">[</span><span class="s1">'result'</span><span class="p">]</span><span class="si">}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="n">o</span><span class="p">[</span><span class="s1">'reason'</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<div class="highlight hl-ipython3"><pre><span></span><span class="c1"># A gate that rejects the first attempt and accepts the second shows the</span>
+<span class="c1"># retry loop working. We use a stateful fake LLM: the first call returns a</span>
+<span class="c1"># too-short rewrite (fails the length gate), the second returns a full one.</span>
+<span class="n">_calls</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"n"</span><span class="p">:</span> <span class="mi">0</span><span class="p">}</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_flaky_llm</span><span class="p">(</span><span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">system_prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="n">_calls</span><span class="p">[</span><span class="s2">"n"</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+    <span class="k">if</span> <span class="n">_calls</span><span class="p">[</span><span class="s2">"n"</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">"too short"</span>  <span class="c1"># &lt; 80 chars, fails the gate</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="s2">"In Q3, GMV expanded 35% YoY, led by 3C (category 4) and apparel "</span>
+        <span class="s2">"(category 7); active buyers increased 18</span><span class="si">% o</span><span class="s2">ver the same period."</span>
+    <span class="p">)</span>
+
+
+<span class="n">retry_chain</span> <span class="o">=</span> <span class="n">build_chain_graph</span><span class="p">(</span>
+    <span class="p">[</span>
+        <span class="n">StepSpec</span><span class="p">(</span>
+            <span class="n">step_id</span><span class="o">=</span><span class="s2">"rewrite"</span><span class="p">,</span>
+            <span class="n">system_prompt</span><span class="o">=</span><span class="s2">"[role]rewriter[/role] Improve clarity, preserve all numbers."</span><span class="p">,</span>
+            <span class="n">prompt_template</span><span class="o">=</span><span class="s2">"Draft:</span><span class="se">\n</span><span class="si">{user_input}</span><span class="s2">"</span><span class="p">,</span>
+            <span class="n">gate</span><span class="o">=</span><span class="n">length_gate</span><span class="p">(</span><span class="mi">80</span><span class="p">,</span> <span class="mi">600</span><span class="p">),</span>
+        <span class="p">)</span>
+    <span class="p">],</span>
+    <span class="n">_flaky_llm</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">result_retry</span> <span class="o">=</span> <span class="n">retry_chain</span><span class="o">.</span><span class="n">invoke</span><span class="p">({</span><span class="s2">"user_input"</span><span class="p">:</span> <span class="s2">"q3 gmv +35%, buyers +18%"</span><span class="p">,</span> <span class="s2">"prior"</span><span class="p">:</span> <span class="p">{}})</span>
+<span class="n">result_retry</span><span class="p">[</span><span class="s2">"completed"</span><span class="p">]</span> <span class="o">=</span> <span class="ow">not</span> <span class="n">result_retry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"failure_reason"</span><span class="p">)</span>
+<span class="n">print_trace</span><span class="p">(</span><span class="s2">"Mock run 2: gate fails once, passes on retry"</span><span class="p">,</span> <span class="n">result_retry</span><span class="p">)</span>
 </pre></div>
 </div>
 </div>
 </div>
 </div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=ce692abf">
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>
+Mock run 2: gate fails once, passes on retry
+--------------------------------------------
+completed     : True
+per-step audit:
+  ✗ rewrite    attempt 1  gate=[length[80-600]] -&gt; length[80-600] rejected (output length between 80 and 600 chars)
+      too short
+  ✓ rewrite    attempt 2  gate=[length[80-600]] -&gt; length[80-600] ok
+      In Q3, GMV expanded 35% YoY, led by 3C (category 4) and apparel (category 7); ac
+final_output  : In Q3, GMV expanded 35% YoY, led by 3C (category 4) and apparel (category 7); ac
+</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=lg-run3-md">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Mock-run-1:-routine-transfer-passes">Mock run 1: routine transfer passes<a class="anchor-link" href="#Mock-run-1:-routine-transfer-passes">¶</a></h2>
+<h2 id="Mock-run-3:-gate-tyranny-%E2%86%92-retries-exhausted">Mock run 3: gate tyranny → retries exhausted<a class="anchor-link" href="#Mock-run-3:-gate-tyranny-%E2%86%92-retries-exhausted">¶</a></h2><p>A gate that can never be satisfied. The chain retries up to <code>max_retries</code>, then gives up with a <code>failure_reason</code> and a <code>retry_exhausted</code> status — instead of looping forever. This is why gates should describe <em>tolerable</em> output, and why the retry budget is the safety valve when they don't.</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=6258c5d6">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=lg-run3">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -8353,12 +8539,23 @@ a.anchor-link {
 <div class="jp-InputPrompt jp-InputArea-prompt">In [11]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="n">result_ok</span> <span class="o">=</span> <span class="n">sandwich</span><span class="o">.</span><span class="n">invoke</span><span class="p">({</span>
-    <span class="s2">"tool_name"</span><span class="p">:</span> <span class="s2">"transfer"</span><span class="p">,</span>
-    <span class="s2">"tool_args"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"account"</span><span class="p">:</span> <span class="s2">"CORP-1234"</span><span class="p">,</span> <span class="s2">"amount"</span><span class="p">:</span> <span class="mi">4200</span><span class="p">,</span> <span class="s2">"memo"</span><span class="p">:</span> <span class="s2">"Invoice #42"</span><span class="p">},</span>
-    <span class="s2">"hooks"</span><span class="p">:</span> <span class="n">all_hooks</span><span class="p">,</span>
-<span class="p">})</span>
-<span class="n">print_trace</span><span class="p">(</span><span class="s2">"Mock run 1: routine transfer"</span><span class="p">,</span> <span class="n">result_ok</span><span class="p">)</span>
+<div class="highlight hl-ipython3"><pre><span></span><span class="c1"># Gate tyranny: a gate that can never be satisfied. The chain retries up to</span>
+<span class="c1"># max_retries, then gives up with a failure_reason instead of looping forever.</span>
+<span class="n">impossible</span> <span class="o">=</span> <span class="n">build_chain_graph</span><span class="p">(</span>
+    <span class="p">[</span>
+        <span class="n">StepSpec</span><span class="p">(</span>
+            <span class="n">step_id</span><span class="o">=</span><span class="s2">"rewrite"</span><span class="p">,</span>
+            <span class="n">system_prompt</span><span class="o">=</span><span class="s2">"[role]rewriter[/role] Improve clarity, preserve all numbers."</span><span class="p">,</span>
+            <span class="n">prompt_template</span><span class="o">=</span><span class="s2">"Draft:</span><span class="se">\n</span><span class="si">{user_input}</span><span class="s2">"</span><span class="p">,</span>
+            <span class="n">gate</span><span class="o">=</span><span class="n">length_gate</span><span class="p">(</span><span class="mi">5000</span><span class="p">,</span> <span class="mi">6000</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">"impossible"</span><span class="p">),</span>  <span class="c1"># fake reply is far shorter</span>
+        <span class="p">)</span>
+    <span class="p">],</span>
+    <span class="n">_fake_llm</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">result_tyranny</span> <span class="o">=</span> <span class="n">impossible</span><span class="o">.</span><span class="n">invoke</span><span class="p">({</span><span class="s2">"user_input"</span><span class="p">:</span> <span class="n">draft</span><span class="p">,</span> <span class="s2">"prior"</span><span class="p">:</span> <span class="p">{}})</span>
+<span class="n">result_tyranny</span><span class="p">[</span><span class="s2">"completed"</span><span class="p">]</span> <span class="o">=</span> <span class="ow">not</span> <span class="n">result_tyranny</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"failure_reason"</span><span class="p">)</span>
+<span class="n">print_trace</span><span class="p">(</span><span class="s2">"Mock run 3: gate tyranny -&gt; retries exhausted"</span><span class="p">,</span> <span class="n">result_tyranny</span><span class="p">)</span>
 </pre></div>
 </div>
 </div>
@@ -8372,32 +8569,35 @@ a.anchor-link {
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
 <pre>
-Mock run 1: routine transfer
-----------------------------
-final_status: passed
-tool_output : {'status': 'ok', 'account': 'CORP-1234', 'amount': 4200.0, 'tx_id': 'TX-20250610-001'}
-pre_outcomes:
-  - [pre] amount_threshold pass -&gt; amount=4200 within limit
-  - [pre] blocklist pass -&gt; account clear
-post_outcomes:
-  - [post] output_schema pass -&gt; output schema valid
+Mock run 3: gate tyranny -&gt; retries exhausted
+---------------------------------------------
+completed     : False
+failure_reason: step 'rewrite' gate 'impossible' failed after 3 attempts
+per-step audit:
+  ✗ rewrite    attempt 1  gate=[impossible] -&gt; impossible rejected (output length between 5000 and 6000 chars)
+      In Q3, GMV expanded 35% YoY. The growth was led by 3C (category 4) and apparel (
+  ✗ rewrite    attempt 2  gate=[impossible] -&gt; impossible rejected (output length between 5000 and 6000 chars)
+      In Q3, GMV expanded 35% YoY. The growth was led by 3C (category 4) and apparel (
+  ! rewrite    attempt 3  gate=[impossible] -&gt; impossible rejected (output length between 5000 and 6000 chars)
+      In Q3, GMV expanded 35% YoY. The growth was led by 3C (category 4) and apparel (
 </pre>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=0c3221bb">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=lg-real-md">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Mock-run-2:-pre-hook-blocks-the-action">Mock run 2: pre-hook blocks the action<a class="anchor-link" href="#Mock-run-2:-pre-hook-blocks-the-action">¶</a></h2>
+<h2 id="Real-backend">Real backend<a class="anchor-link" href="#Real-backend">¶</a></h2><p>The model now does the actual editing work — rewriting, then fact-checking — while the gates stay deterministic and identical to the mock runs. The model is wrapped in a <code>real_llm_call</code> adapter so the chain code doesn't change at all.</p>
+<p>Default: AI Studio + <code>ernie-5.1</code> (OpenAI-compatible). Configure in root <code>.env</code> — see <a href="../../../.env.example"><code>.env.example</code></a>.</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=637b556d">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=lg-real-model">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -8405,162 +8605,21 @@ post_outcomes:
 <div class="jp-InputPrompt jp-InputArea-prompt">In [12]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="n">result_blocked_pre</span> <span class="o">=</span> <span class="n">sandwich</span><span class="o">.</span><span class="n">invoke</span><span class="p">({</span>
-    <span class="s2">"tool_name"</span><span class="p">:</span> <span class="s2">"transfer"</span><span class="p">,</span>
-    <span class="s2">"tool_args"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"account"</span><span class="p">:</span> <span class="s2">"CORP-1234"</span><span class="p">,</span> <span class="s2">"amount"</span><span class="p">:</span> <span class="mi">5_000_000</span><span class="p">,</span> <span class="s2">"memo"</span><span class="p">:</span> <span class="s2">"Large transfer"</span><span class="p">},</span>
-    <span class="s2">"hooks"</span><span class="p">:</span> <span class="n">all_hooks</span><span class="p">,</span>
-<span class="p">})</span>
-<span class="n">print_trace</span><span class="p">(</span><span class="s2">"Mock run 2: threshold block"</span><span class="p">,</span> <span class="n">result_blocked_pre</span><span class="p">)</span>
-</pre></div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>
-Mock run 2: threshold block
----------------------------
-final_status: blocked_pre
-tool_output : None
-pre_outcomes:
-  - [pre] amount_threshold block -&gt; amount=5000000 exceeds 1000000
-</pre>
-</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=0d88ee9c">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Mock-run-3:-blocklist-blocks-a-sanctioned-account">Mock run 3: blocklist blocks a sanctioned account<a class="anchor-link" href="#Mock-run-3:-blocklist-blocks-a-sanctioned-account">¶</a></h2>
-</div>
-</div>
-</div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=333127d9">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [13]:</div>
-<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
-<div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="n">result_blocklist</span> <span class="o">=</span> <span class="n">sandwich</span><span class="o">.</span><span class="n">invoke</span><span class="p">({</span>
-    <span class="s2">"tool_name"</span><span class="p">:</span> <span class="s2">"transfer"</span><span class="p">,</span>
-    <span class="s2">"tool_args"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"account"</span><span class="p">:</span> <span class="s2">"SANCTIONED-001"</span><span class="p">,</span> <span class="s2">"amount"</span><span class="p">:</span> <span class="mi">500</span><span class="p">,</span> <span class="s2">"memo"</span><span class="p">:</span> <span class="s2">"Advisory fee"</span><span class="p">},</span>
-    <span class="s2">"hooks"</span><span class="p">:</span> <span class="n">all_hooks</span><span class="p">,</span>
-<span class="p">})</span>
-<span class="n">print_trace</span><span class="p">(</span><span class="s2">"Mock run 3: blocklist block"</span><span class="p">,</span> <span class="n">result_blocklist</span><span class="p">)</span>
-</pre></div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>
-Mock run 3: blocklist block
----------------------------
-final_status: blocked_pre
-tool_output : None
-pre_outcomes:
-  - [pre] amount_threshold pass -&gt; amount=500 within limit
-  - [pre] blocklist block -&gt; account='SANCTIONED-001' on blocklist
-</pre>
-</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=5abdcbb7">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Mock-run-4:-post-hook-catches-a-bad-receipt">Mock run 4: post-hook catches a bad receipt<a class="anchor-link" href="#Mock-run-4:-post-hook-catches-a-bad-receipt">¶</a></h2>
-</div>
-</div>
-</div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=cdebedd4">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [14]:</div>
-<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
-<div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="n">result_blocked_post</span> <span class="o">=</span> <span class="n">broken_sandwich</span><span class="o">.</span><span class="n">invoke</span><span class="p">({</span>
-    <span class="s2">"tool_name"</span><span class="p">:</span> <span class="s2">"transfer"</span><span class="p">,</span>
-    <span class="s2">"tool_args"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"account"</span><span class="p">:</span> <span class="s2">"CORP-1234"</span><span class="p">,</span> <span class="s2">"amount"</span><span class="p">:</span> <span class="mi">4200</span><span class="p">,</span> <span class="s2">"memo"</span><span class="p">:</span> <span class="s2">"Invoice #42"</span><span class="p">},</span>
-    <span class="s2">"hooks"</span><span class="p">:</span> <span class="n">all_hooks</span><span class="p">,</span>
-<span class="p">})</span>
-<span class="n">print_trace</span><span class="p">(</span><span class="s2">"Mock run 4: bad receipt schema"</span><span class="p">,</span> <span class="n">result_blocked_post</span><span class="p">)</span>
-</pre></div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>
-Mock run 4: bad receipt schema
-------------------------------
-final_status: blocked_post
-tool_output : {'status': 'ok', 'account': 'CORP-1234', 'amount': 4200.0}
-pre_outcomes:
-  - [pre] amount_threshold pass -&gt; amount=4200 within limit
-  - [pre] blocklist pass -&gt; account clear
-post_outcomes:
-  - [post] output_schema block -&gt; output missing keys: ['tx_id']
-</pre>
-</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=1882fb02">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Real-backend">Real backend<a class="anchor-link" href="#Real-backend">¶</a></h2><p>The model is used only to extract tool arguments from free-text email. The guardrails remain deterministic and identical to the mock runs.</p>
-<p>Default: AI Studio + <code>ernie-5.1</code> (OpenAI-compatible). Configure in root <code>.env</code> — see <a href="../../../.env.example"><code>.env.example</code></a>.</p>
-</div>
-</div>
-</div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=3b2a6092">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [15]:</div>
-<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
-<div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="c1"># Shared model loader — registers CN providers (AI Studio, DashScope, etc.)</span>
+<div class="highlight hl-ipython3"><pre><span></span><span class="c1"># Shared model loader — defaults to AI Studio + ernie-5.1 (OpenAI-compatible).</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">model_config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_model</span>
 
 <span class="n">model</span> <span class="o">=</span> <span class="n">get_model</span><span class="p">()</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">real_llm_call</span><span class="p">(</span><span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">system_prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">model_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Adapt the configured chat model to the chain's (prompt, system, model)</span>
+<span class="sd">    call signature. The gates stay deterministic — only the text generation</span>
+<span class="sd">    is delegated to the LLM."""</span>
+    <span class="n">messages</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"system"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="n">system_prompt</span><span class="p">},</span>
+        <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="n">prompt</span><span class="p">},</span>
+    <span class="p">]</span>
+    <span class="k">return</span> <span class="n">model</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span><span class="n">messages</span><span class="p">)</span><span class="o">.</span><span class="n">content</span>
 </pre></div>
 </div>
 </div>
@@ -8579,132 +8638,26 @@ post_outcomes:
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=9c1af59c">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=lg-real-run">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [16]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [13]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="n">email</span> <span class="o">=</span> <span class="s2">"""</span>
-<span class="s2">Hi ops team,</span>
-
-<span class="s2">Please transfer JPY 4,200 to vendor account CORP-1234 for invoice #42.</span>
-<span class="s2">Memo: office supplies.</span>
-<span class="s2">"""</span>
-
-<span class="nb">print</span><span class="p">(</span><span class="n">email</span><span class="p">)</span>
-</pre></div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>
-Hi ops team,
-
-Please transfer JPY 4,200 to vendor account CORP-1234 for invoice #42.
-Memo: office supplies.
-
-</pre>
-</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=f9c46b44">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Real-run-1:-let-the-model-extract-tool-arguments">Real run 1: let the model extract tool arguments<a class="anchor-link" href="#Real-run-1:-let-the-model-extract-tool-arguments">¶</a></h2>
-</div>
-</div>
-</div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=2e6d45b0">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [17]:</div>
-<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
-<div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="n">transfer_args</span> <span class="o">=</span> <span class="kc">None</span>
-
-<span class="k">if</span> <span class="n">model</span><span class="p">:</span>
-    <span class="n">prompt</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"""Extract one transfer request from the email below.</span>
-<span class="s2">Return JSON with exactly these keys: account, amount, memo.</span>
-<span class="s2">Return JSON only.</span>
-
-<span class="s2">Email:</span>
-<span class="si">{</span><span class="n">email</span><span class="si">}</span>
-<span class="s2">"""</span>
+<div class="highlight hl-ipython3"><pre><span></span><span class="k">if</span> <span class="n">model</span><span class="p">:</span>
+    <span class="n">real_chain</span> <span class="o">=</span> <span class="n">build_chain_graph</span><span class="p">(</span><span class="n">EDITING_STEPS</span><span class="p">,</span> <span class="n">real_llm_call</span><span class="p">)</span>
     <span class="k">try</span><span class="p">:</span>
-        <span class="n">response</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span><span class="n">prompt</span><span class="p">)</span>
-        <span class="n">transfer_args</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
-        <span class="nb">print</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">transfer_args</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">))</span>
-    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Model call failed: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="n">result_real</span> <span class="o">=</span> <span class="n">real_chain</span><span class="o">.</span><span class="n">invoke</span><span class="p">({</span><span class="s2">"user_input"</span><span class="p">:</span> <span class="n">draft</span><span class="p">,</span> <span class="s2">"prior"</span><span class="p">:</span> <span class="p">{}})</span>
+        <span class="n">result_real</span><span class="p">[</span><span class="s2">"completed"</span><span class="p">]</span> <span class="o">=</span> <span class="ow">not</span> <span class="n">result_real</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"failure_reason"</span><span class="p">)</span>
+        <span class="n">print_trace</span><span class="p">(</span><span class="s2">"Real run: two-step pipeline on a live model"</span><span class="p">,</span> <span class="n">result_real</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>  <span class="c1"># noqa: BLE001</span>
+        <span class="c1"># The pipeline never raises into the notebook — a flaky model call</span>
+        <span class="c1"># is reported, not propagated.</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Real run failed gracefully: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 <span class="k">else</span><span class="p">:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">"Skipping — no API key set."</span><span class="p">)</span>
-</pre></div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>{
-  "account": "CORP-1234",
-  "amount": "JPY 4,200",
-  "memo": "office supplies"
-}
-</pre>
-</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=4a617793">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Real-run-2:-feed-those-args-through-the-same-sandwich">Real run 2: feed those args through the same sandwich<a class="anchor-link" href="#Real-run-2:-feed-those-args-through-the-same-sandwich">¶</a></h2>
-</div>
-</div>
-</div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=71fd1be4">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [18]:</div>
-<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
-<div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="k">if</span> <span class="n">transfer_args</span><span class="p">:</span>
-    <span class="n">result_real</span> <span class="o">=</span> <span class="n">sandwich</span><span class="o">.</span><span class="n">invoke</span><span class="p">({</span>
-        <span class="s2">"tool_name"</span><span class="p">:</span> <span class="s2">"transfer"</span><span class="p">,</span>
-        <span class="s2">"tool_args"</span><span class="p">:</span> <span class="n">transfer_args</span><span class="p">,</span>
-        <span class="s2">"hooks"</span><span class="p">:</span> <span class="n">all_hooks</span><span class="p">,</span>
-    <span class="p">})</span>
-    <span class="n">print_trace</span><span class="p">(</span><span class="s2">"Real run: extracted transfer"</span><span class="p">,</span> <span class="n">result_real</span><span class="p">)</span>
-<span class="k">else</span><span class="p">:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">"No extracted args available."</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">"Skipping real run — no API key set. See .env.example."</span><span class="p">)</span>
 </pre></div>
 </div>
 </div>
@@ -8718,62 +8671,70 @@ Memo: office supplies.
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
 <pre>
-Real run: extracted transfer
-----------------------------
-final_status: blocked_pre
-tool_output : None
-pre_outcomes:
-  - [pre] amount_threshold block -&gt; hook crashed: TypeError: '&gt;' not supported between instances of 'str' and 'int'
+Real run: two-step pipeline on a live model
+-------------------------------------------
+completed     : True
+per-step audit:
+  ✓ rewrite    attempt 1  gate=[length[80-600]] -&gt; length[80-600] ok
+      In Q3, GMV grew 35% year-over-year (YoY), driven by Category 4 (3C) and Category
+  ✓ factcheck  attempt 1  gate=[verified-or-discrepancy] -&gt; verified-or-discrepancy ok
+      verified
+final_output  : verified
 </pre>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=aa25811a">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=lg-subgraph-md">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Composing-as-a-subgraph">Composing as a subgraph<a class="anchor-link" href="#Composing-as-a-subgraph">¶</a></h2><p>The compiled sandwich graph can be embedded as a node in a larger agent graph. This is how you'd add guardrails to a <code>create_react_agent</code> pipeline:</p>
-<div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">langgraph.prebuilt</span><span class="w"> </span><span class="kn">import</span> <span class="n">create_react_agent</span>
-
-<span class="c1"># The sandwich graph is a compiled StateGraph — it can be used as a subgraph node.</span>
-<span class="c1"># Wrap it so the parent agent routes destructive tool calls through the sandwich</span>
-<span class="c1"># while letting safe tools (read_balance, get_rate) execute directly.</span>
-
-<span class="n">parent</span> <span class="o">=</span> <span class="n">StateGraph</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
-<span class="n">parent</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">"react_agent"</span><span class="p">,</span> <span class="n">create_react_agent</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">safe_tools</span><span class="p">))</span>
-<span class="n">parent</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">"guardrail_sandwich"</span><span class="p">,</span> <span class="n">sandwich</span><span class="p">)</span>  <span class="c1"># compiled graph as a node</span>
-<span class="n">parent</span><span class="o">.</span><span class="n">add_conditional_edges</span><span class="p">(</span><span class="s2">"react_agent"</span><span class="p">,</span> <span class="n">route_by_risk</span><span class="p">,</span> <span class="p">{</span><span class="o">...</span><span class="p">})</span>
+<h2 id="Composing-as-a-subgraph">Composing as a subgraph<a class="anchor-link" href="#Composing-as-a-subgraph">¶</a></h2><p>The compiled chain is a first-class LangGraph object — it can be embedded as a node inside a larger agent graph. A parent agent might route only content-editing requests through the chain while handling everything else directly:</p>
+<div class="highlight"><pre><span></span><span class="n">parent</span> <span class="o">=</span> <span class="n">StateGraph</span><span class="p">(</span><span class="n">AgentState</span><span class="p">)</span>
+<span class="n">parent</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">"editor_chain"</span><span class="p">,</span> <span class="n">chain</span><span class="p">)</span>        <span class="c1"># the compiled chain as one node</span>
+<span class="n">parent</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">"react_agent"</span><span class="p">,</span> <span class="n">create_react_agent</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">tools</span><span class="p">))</span>
+<span class="n">parent</span><span class="o">.</span><span class="n">add_conditional_edges</span><span class="p">(</span><span class="s2">"react_agent"</span><span class="p">,</span> <span class="n">route_by_task</span><span class="p">,</span> <span class="p">{</span>
+    <span class="s2">"edit"</span><span class="p">:</span> <span class="s2">"editor_chain"</span><span class="p">,</span>
+    <span class="s2">"other"</span><span class="p">:</span> <span class="n">END</span><span class="p">,</span>
+<span class="p">})</span>
 </pre></div>
-<p>LangGraph also ships prebuilt middleware that works alongside custom graphs — see the <a href="../langchain/tutorial.ipynb">middleware version</a> for <code>PIIMiddleware</code>, <code>HumanInTheLoopMiddleware</code>, etc.</p>
+<p>This is the same composability the <a href="../langchain/tutorial.ipynb">LCEL version</a> gets from piping runnables — a chain is just another runnable you can drop into a bigger pipeline.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=lg-remember-md">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <h2 id="What-to-remember">What to remember<a class="anchor-link" href="#What-to-remember">¶</a></h2><ul>
-<li><code>StateGraph</code> makes the sandwich flow explicit: <code>pre_hooks → execute_tool → post_hooks</code> as visible nodes and edges.</li>
-<li><code>ToolNode</code> handles tool execution — spend notebook space on the pattern, not framework plumbing.</li>
-<li><code>add_conditional_edges</code> implements the skip logic: if pre-hooks block, the graph jumps to <code>END</code> without running the tool.</li>
-<li>Hook crash = <code>BLOCK</code>, not <code>PASS</code>. A broken guardrail must not become an open door.</li>
-<li>The compiled graph is a first-class object — embed it as a subgraph in larger agent pipelines.</li>
+<li><strong><code>StateGraph</code> makes the chain explicit</strong> — <code>rewrite → factcheck</code> as visible nodes and edges you can debug in LangGraph Studio.</li>
+<li><strong>Gates are programmatic, not LLM calls.</strong> A gate that calls a model is just another step. Keep them cheap: length, keys, schema.</li>
+<li><strong><code>add_conditional_edges</code> implements early exit.</strong> If a gate exhausts its retries, the graph jumps to <code>END</code> instead of running the doomed remainder.</li>
+<li><strong>Gate crash = reject, not pass.</strong> Fail closed; a broken guardrail must never become an open door.</li>
+<li><strong>Every step sees all prior outputs.</strong> Fact-check reads the <em>original</em> draft, not just the rewrite — that one wiring choice is the whole information-starvation guard.</li>
 </ul>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=d0a8931a">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=lg-further-md">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <h2 id="Further-reading">Further reading<a class="anchor-link" href="#Further-reading">¶</a></h2><ul>
-<li><a href="../langchain/tutorial.ipynb">Middleware version</a> — the same Guardrail Sandwich pattern implemented as LangChain v1 middleware with <code>@wrap_tool_call</code> and <code>AgentMiddleware</code>, tested via <code>create_agent</code></li>
-<li><a href="../../README.md">Parent pattern README</a> — full design rationale, failure mode taxonomy, hook contract specification, and engineering references for the pure-Python implementation</li>
+<li><a href="../langchain/tutorial.ipynb">LCEL version</a> — the same Prompt Chaining pattern as LangChain runnables piped with <code>|</code>, using <code>.with_retry()</code> for the bounded gated retry</li>
+<li><a href="../README.md">Parent pattern README</a> — full design rationale, the two failure modes, gate-factory library, and verified engineering references (Aider's recursive-summary chain, Claude Code's PRA loop)</li>
 <li><a href="../../../REFERENCE_IMPL.md">REFERENCE_IMPL.md</a> — how to install <code>uv</code>, sync dependencies, launch JupyterLab, and run all tutorial notebooks</li>
-<li><a href="https://langchain-ai.github.io/langgraph/reference/prebuilt/#langgraph.prebuilt.tool_node.ToolNode">ToolNode reference</a> — the prebuilt LangGraph node that executes tool calls from <code>AIMessage.tool_calls</code>, with error handling and message state management</li>
-<li><a href="https://langchain-ai.github.io/langgraph/reference/graphs/#langgraph.graph.state.StateGraph">StateGraph reference</a> — the core LangGraph primitive for building typed state machines with nodes, edges, and conditional routing</li>
-<li><a href="https://langchain-ai.github.io/langgraph/how-tos/visualization/">Graph.draw_mermaid_png</a> — how to visualize LangGraph graphs as Mermaid diagrams or PNG images for debugging and documentation</li>
-<li><a href="https://genai.owasp.org/">OWASP Top 10 for Agentic Applications</a> — security risks specific to LLM agents, including tool misuse, excessive autonomy, and prompt injection — the threats guardrails are designed to mitigate</li>
+<li><a href="https://langchain-ai.github.io/langgraph/reference/graphs/">StateGraph reference</a> — the core LangGraph primitive for typed state machines with nodes, edges, and conditional routing</li>
+<li><a href="https://www.anthropic.com/research/building-effective-agents">Anthropic · Building Effective Agents</a> — prompt chaining as the simplest and most under-used agent pattern: a small number of well-defined steps with gates between them</li>
 </ul>
 </div>
 </div>
