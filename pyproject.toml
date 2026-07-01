@@ -28,8 +28,12 @@ langgraph = [
   "langchain-anthropic>=1.0,<2",
   "langchain-oceanbase>=0.5.1",
   "langchain-dev-utils>=1.4.6",
+  "langgraph-supervisor>=0.0.31",
   "python-dotenv>=1.0",
   "grandalf>=0.8",          # offline ASCII graph rendering (draw_ascii fallback)
+]
+claude-agent-sdk = [
+  "claude-agent-sdk>=0.1",
 ]
 dev = [
   "pytest>=8.0",
