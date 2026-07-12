@@ -1,8 +1,8 @@
-"""ActionTrace -- the shared observability layer for the Action module (lectures 21-25).
+"""ActionTrace schema sketch for the Action module (lectures 21-25).
 
-Every action pattern in this directory (tool dispatch, plan-and-execute,
-prompt chaining, guardrail sandwich) logs into the same trace, and the trace
-computes the four production metrics the course tracks:
+The current labs keep their native traces and do not automatically emit into
+this class yet. Running this file replays the naked loop's known actions to
+demonstrate four metrics that a future unified event layer can compute:
 
     tool call success rate   -- healthy > 80% per tool
     argument repair rate     -- healthy < 15%

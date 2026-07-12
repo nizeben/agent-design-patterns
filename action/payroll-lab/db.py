@@ -94,11 +94,19 @@ def diff():
 
 def inject_typo():
     con = sqlite3.connect(DB)
+    exists = con.execute(
+        "SELECT id FROM approvals WHERE emp_id='E0099' AND type='adjustment' "
+        "AND amount=999999 AND status='APPROVED'"
+    ).fetchone()
+    if exists:
+        con.close()
+        print(f"E0099 adjustment 999999 is already APPROVED as #{exists[0]}.")
+        return
     con.execute("INSERT INTO approvals (emp_id, type, amount, status, note) VALUES "
                 "('E0099','adjustment',999999,'APPROVED','fat-finger: a few extra zeros')")
     con.commit()
     con.close()
-    print("injected: E0099 adjustment 999999, status APPROVED. Now rerun naked_loop.py.")
+    print("injected: E0099 adjustment 999999, status APPROVED.")
 
 
 if __name__ == "__main__":

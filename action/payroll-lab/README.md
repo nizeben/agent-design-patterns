@@ -7,6 +7,22 @@ payslips, two approved-but-unapplied changes) used as the running hands-on
 bench for the Action patterns in this directory. Fake data, real schema,
 visible side effects. No API key, no cloud — Python 3 only.
 
+## Teaching UI
+
+From the repository root:
+
+```bash
+uv sync --extra ui
+uv run --extra ui python action/payroll-lab/web_app.py
+```
+
+Open `http://127.0.0.1:8765`. The browser console runs the existing CLI
+experiments through a fixed FastAPI surface, shows key events and database
+changes, and includes a searchable SQLite inspector. Raw CLI output remains
+available in a collapsed section.
+
+## CLI path
+
 ```bash
 python3 db.py           # create payroll.db + baseline snapshot
 python3 naked_loop.py   # a ~50-line PRA loop with NO guardrails

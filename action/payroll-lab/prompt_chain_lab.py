@@ -99,7 +99,8 @@ def build_chain(instructions_gate, gate_description):
 def show(trace, models):
     for run in trace.runs:
         flag = {"success": "PASS ", "gate_failed": "GATE!",
-                "retry_exhausted": "DEAD ", "llm_error": "ERROR"}[run.result.value]
+                "retry_exhausted": "DEAD ", "llm_error": "ERROR",
+                "template_error": "WIRE!"}[run.result.value]
         print(f"   [{flag}] {run.step_id:16s} attempt {run.attempt} "
               f"({models[run.step_id]:11s} gate: {run.gate_description})")
         if run.result.value == "gate_failed":

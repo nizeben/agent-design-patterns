@@ -15,7 +15,8 @@ and mark for rollback. Six scenes:
     scene 6  a new, stricter amount hook runs in SHADOW mode: it would
              block, but only logs -- the monitor -> enforce rollout path
 
-Run `python3 db.py` first, then `python3 guardrail_lab.py`.
+Run `python3 db.py`, then `python3 db.py --inject-typo`, then
+`python3 guardrail_lab.py`.
 """
 import re
 import sqlite3
@@ -34,9 +35,18 @@ MONTH = "2026-06"
 con = sqlite3.connect(DB)
 FROZEN_ACCOUNTS = {con.execute(
     "SELECT bank_account FROM employees WHERE emp_id='E0300'").fetchone()[0]}
+TYPO_APPROVAL = con.execute(
+    "SELECT id, amount, status FROM approvals "
+    "WHERE emp_id='E0099' AND type='adjustment' ORDER BY id DESC LIMIT 1"
+).fetchone()
+if TYPO_APPROVAL is None or TYPO_APPROVAL[2] != "APPROVED":
+    raise RuntimeError(
+        "scene 2 needs the approved E0099 typo; run "
+        "`python3 db.py --inject-typo` before guardrail_lab.py"
+    )
 
 
-# ---- tools: the sandwich is their ONLY entry point --------------------------
+# ---- tools: calls below use the sandwich; production must hide bare handlers -
 
 def transfer_salary(emp_id, amount, misbehave=False):
     con.execute("UPDATE payroll SET status='PAID' WHERE month=? AND emp_id=?",
@@ -69,19 +79,25 @@ def frozen_account_fn(tool_name, args, _output):
 
 
 sandwich.add_hook(amount_threshold_hook(
-    "amount", 100000, name="amount<=100k", priority=10))
+    "amount", 100000, name="amount<=100k", priority=10,
+    policy_owner="finance-risk", policy_version="payroll-2026-06"))
 sandwich.add_hook(HookSpec(name="frozen_account", phase=HookPhase.PRE,
                            fn=frozen_account_fn, priority=20,
-                           applies_to={"transfer_salary"}))
+                           applies_to={"transfer_salary"},
+                           policy_owner="risk-operations",
+                           policy_version="frozen-list-2026-07-12"))
 receipt_hook = output_schema_hook(
-    ["emp_id", "paid", "receipt"], name="receipt_present", priority=10)
+    ["emp_id", "paid", "receipt"], name="receipt_present", priority=10,
+    policy_owner="treasury-operations", policy_version="receipt-v1")
 receipt_hook.applies_to = {"transfer_salary"}   # reads/exports owe no receipt
 sandwich.add_hook(receipt_hook)
 sandwich.add_hook(pii_redaction_hook(
-    [r"62\d{2}-?\d{4}-?\d{4}"], name="no_bank_accounts_leave", priority=20))
+    [r"62\d{2}-?\d{4}-?\d{4}"], name="no_bank_accounts_leave", priority=20,
+    policy_owner="data-security", policy_version="dlp-2026-07"))
 # Shadow mode: a stricter threshold being trialled. It only logs.
 sandwich.add_hook(amount_threshold_hook(
-    "amount", 50000, name="amount<=50k(shadow)", priority=30, blocks=False))
+    "amount", 50000, name="amount<=50k(shadow)", priority=30, blocks=False,
+    policy_owner="finance-risk", policy_version="payroll-2026-07-candidate"))
 
 
 def show(title, trace):
@@ -90,7 +106,8 @@ def show(title, trace):
     for o in trace.pre_outcomes + trace.post_outcomes:
         if o.result != HookResult.PASS:
             print(f"       {o.phase.value}-hook {o.hook_name}: "
-                  f"{o.result.value} ({o.reason})")
+                  f"{o.result.value} ({o.reason}; "
+                  f"policy={o.policy_owner}@{o.policy_version})")
 
 
 print("== scene 1: a normal transfer ==")
@@ -98,8 +115,14 @@ show("transfer_salary(E0012, 9600)  # Xiaoxue's bonus, verified in lecture 19",
      sandwich.run("transfer_salary", {"emp_id": "E0012", "amount": 9600}))
 
 print("\n== scene 2: the 999999 from lecture 21, four lectures later ==")
-show("transfer_salary(E0099, 999999)  # approvals said APPROVED",
-     sandwich.run("transfer_salary", {"emp_id": "E0099", "amount": 999999}))
+approval_id, approved_amount, approval_status = TYPO_APPROVAL
+print(f"    approval evidence: id={approval_id}, emp=E0099, "
+      f"amount={approved_amount}, status={approval_status}")
+show(f"transfer_salary(E0099, {approved_amount})  # sourced from approval #{approval_id}",
+     sandwich.run(
+         "transfer_salary",
+         {"emp_id": "E0099", "amount": approved_amount},
+     ))
 status = con.execute("SELECT status FROM payroll WHERE month=? AND emp_id='E0099'",
                      (MONTH,)).fetchone()[0]
 print(f"    ledger check: E0099 payslip status is still {status!r} -- "
@@ -127,5 +150,7 @@ show("transfer_salary(E0025, 60000)  # over 50k, under 100k",
 
 paid = con.execute("SELECT COUNT(*) FROM payroll WHERE month=? AND status='PAID'",
                    (MONTH,)).fetchone()[0]
-print(f"\n[LEDGER] {paid} payslips PAID this run. Blocked money never moved. "
-      f"Every hook decision above is in the SandwichTrace, timestamped.")
+print(f"\n[LEDGER] {paid} payslips PAID this run.")
+print("         PRE-blocked transfers never moved; POST-blocked actions remain "
+      "changed until compensation runs.")
+print("         Every hook decision above is in the SandwichTrace, timestamped.")
