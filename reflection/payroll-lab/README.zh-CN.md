@@ -22,7 +22,7 @@ python3 self_grade_lab.py --strict   # 改一处：让自评者"更严格"，看
 | 讲 | 模式（坐标） | 外部信号 | 代码位置 |
 |:--|:--|:--|:--|
 | 26 导论 | 纯内省 vs 外部信号 | 对账 SQL | 本目录 `self_grade_lab.py` |
-| 27 生成批评 | Reflection × Chain | 对账测试 / schema | [`../a-generator-critic/`](../a-generator-critic/) |
+| 27 生成批评 | Reflection × Chain | 对账测试 / schema | 本目录 `generator_critic_lab.py`（三场景）+ 模式本体 [`../a-generator-critic/`](../a-generator-critic/) |
 | 28 技能包 | Reflection × Router | 技能 verified 才入库 | [`../b-skill-package/`](../b-skill-package/) |
 | 29 经验回放 | Reflection × Hierarchy | 复用后的成功率 | [`../c-experience-replay/`](../c-experience-replay/) |
 | 30 自愈循环 | Reflection × Loop | 确定性 CI 信号 | [`../d-self-heal-loop/`](../d-self-heal-loop/) |

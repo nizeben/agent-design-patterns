@@ -20,7 +20,7 @@ external signal to close the loop.
 
 | Pattern (coordinate) | External signal | Directory |
 |:--|:--|:--|
-| Generator-Critic (Reflection × Chain) | reconciliation tests / schema | [`../a-generator-critic/`](../a-generator-critic/) |
+| Generator-Critic (Reflection × Chain) | reconciliation tests / schema | `generator_critic_lab.py` here + [`../a-generator-critic/`](../a-generator-critic/) |
 | Skill Package (Reflection × Router) | verified-before-stored | [`../b-skill-package/`](../b-skill-package/) |
 | Experience Replay (Reflection × Hierarchy) | post-reuse success rate | [`../c-experience-replay/`](../c-experience-replay/) |
 | Self-Heal Loop (Reflection × Loop) | deterministic CI signals | [`../d-self-heal-loop/`](../d-self-heal-loop/) |
