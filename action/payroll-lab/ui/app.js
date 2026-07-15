@@ -112,8 +112,8 @@ function renderStressControls() {
   let actions = "";
 
   if (lecture === "21") {
-    byId("stress-title").textContent = "一个例子走透：L0 裸奔循环";
-    byId("stress-subtitle").textContent = "同一份北极星与外部备注，只看动作流水和数据库终态";
+    byId("stress-title").textContent = "一个例子走透：L0 裸循环";
+    byId("stress-subtitle").textContent = "同一份北极星目标与外部备注，只看动作流水和数据库终态";
     actions = stress.worked_levels
       .filter((level) => level.id === "L0")
       .map(levelButton)
@@ -251,6 +251,10 @@ async function runStressVector(vectorId) {
   setBusy(true, `正在运行 ${vectorId} 前后对照`);
   try {
     const result = await api(`/api/stress/vector/${vectorId}`, { method: "POST" });
+    if (result.after) {
+      appState.database = result.after;   // reset baseline, never a prior lecture's L0 damage
+      renderDatabaseState();
+    }
     const comparison = result.comparison;
     const rows = [comparison.without_pattern, comparison.with_pattern];
     const node = byId("stress-ladder");
@@ -511,39 +515,6 @@ async function loadTable() {
   renderTable();
 }
 
-async function runLecture(lecture) {
-  const label =
-    lecture === "all" ? "正在运行完整行动模块" : `正在运行第 ${lecture} 讲`;
-  setBusy(true, label);
-  try {
-    const result = await api(`/api/run/${lecture}`, { method: "POST" });
-    renderRunResult(result);
-    appState.database = result.after;
-    renderDatabaseState();
-    toast(`${result.meta.title}运行完成`);
-  } catch (error) {
-    toast(error.message, true);
-  } finally {
-    setBusy(false);
-  }
-}
-
-async function runScenario(scenario) {
-  const spec = appState.meta.scenarios.find((item) => item.id === scenario);
-  setBusy(true, `正在运行${spec.label}`);
-  try {
-    const result = await api(`/api/scenarios/${scenario}`, { method: "POST" });
-    renderRunResult(result);
-    appState.database = result.after;
-    renderDatabaseState();
-    toast(`${result.meta.title}运行完成`);
-  } catch (error) {
-    toast(error.message, true);
-  } finally {
-    setBusy(false);
-  }
-}
-
 function switchView(view) {
   document.querySelectorAll(".view").forEach((node) => {
     node.classList.toggle("active", node.id === `view-${view}`);
@@ -575,10 +546,6 @@ function bindEvents() {
   document.querySelectorAll(".view-tab").forEach((button) => {
     button.addEventListener("click", () => switchView(button.dataset.view));
   });
-  byId("run-lecture").addEventListener("click", () =>
-    runLecture(appState.selectedLecture),
-  );
-  byId("run-all").addEventListener("click", () => runLecture("all"));
   byId("reset-db").addEventListener("click", () => {
     if (window.confirm("恢复数据库基线？当前实验产生的状态会被清除。")) {
       mutateDatabase("/api/database/reset", "正在恢复数据库基线");
