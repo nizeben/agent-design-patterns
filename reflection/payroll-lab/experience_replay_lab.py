@@ -139,7 +139,8 @@ if not NO_FEEDBACK:
     print(f"   graduation candidates: {[e.exp_id for e in grads]}")
     print("   -> membership consistency is deterministically checkable and has")
     print("      a proven track record: compile it into a pre-action guard")
-    print("      (lecture 25's GuardRegistry) and retire the soft lesson.")
+    print("      (a PRE-phase HookSpec on lecture 25's GuardrailSandwich) and")
+    print("      retire the soft lesson.")
     print("   Same signal, both directions: reuse outcomes archived the")
     print("   superstition and qualified the real lesson to graduate.")
 
