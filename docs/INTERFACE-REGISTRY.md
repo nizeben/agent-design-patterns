@@ -7,7 +7,7 @@
 >
 > **Citation discipline**: course lectures, whitepapers, and book chapters that quote an interface must pin the commit (`pattern.py@<hash>` in the document header). Interfaces do refactor; a pinned quote stays honest, an unpinned one rots.
 
-Generated 2026-07-17 at HEAD `a5337b5` (working tree has uncommitted changes).
+Generated 2026-07-17 at HEAD `de5e297` (working tree has uncommitted changes).
 
 ## Summary
 
@@ -323,9 +323,9 @@ Generated 2026-07-17 at HEAD `a5337b5` (working tree has uncommitted changes).
 ### C4 交接链 Handoff Chain — `collaboration/d-handoff-chain/`
 
 - **Coordinate**: 协作 × 链式
-- **State**: `pattern.py` 617 lines · last commit a5337b5 2026-07-17 · clean · tests: yes
+- **State**: `pattern.py` 635 lines · last commit de5e297 2026-07-17 · clean · tests: yes
 - **Summary**: Handoff Chain pattern.
-- **Public API**: `SeamError` *class*; `FactValue` *dataclass*; `FactRule` *dataclass*; `FactRecord` *dataclass*; `Baton` *dataclass*(facts, fact_record, fingerprint, snapshot_id); `BatonView` *dataclass*; `StageSpec` *dataclass*; `StageDelta` *dataclass*; `StageFn` *class*; `StageBinding` *dataclass*; `StageReceipt` *dataclass*; `ChainRun` *dataclass*; `HandoffChain` *class*(run, advance)
+- **Public API**: `SeamError` *class*; `FactValue` *dataclass*; `FactRule` *dataclass*; `FactRecord` *dataclass*(value); `Baton` *dataclass*(facts, fact_record, fingerprint, snapshot_id); `BatonView` *dataclass*; `StageSpec` *dataclass*; `StageDelta` *dataclass*; `StageFn` *class*; `StageBinding` *dataclass*; `StageReceipt` *dataclass*; `ChainRun` *dataclass*; `HandoffChain` *class*(run, advance)
 - **Module functions**: `new_baton`
 - **Contract lines (from docstring)**:
   - read-only snapshot, consumes declared facts, and returns a typed delta. The chain
