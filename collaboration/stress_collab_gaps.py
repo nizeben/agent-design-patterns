@@ -107,14 +107,26 @@ def gap_additive_masks_conflict() -> dict:
     SourceResult = FANOUT.SourceResult
 
     sources = [
-        SourceResult("payroll", {"社保代扣": 120_000.0}),
-        SourceResult("social_security", {"社保代扣": 108_000.0}),   # 真冲突，不是措辞重复
+        SourceResult.from_mapping(
+            source_id="payroll",
+            snapshot_ref="snapshot://payroll",
+            period="2026-06",
+            unit="CNY",
+            line_items={"社保代扣": 120_000.0},
+        ),
+        SourceResult.from_mapping(
+            source_id="social_security",
+            snapshot_ref="snapshot://social-security",
+            period="2026-06",
+            unit="CNY",
+            line_items={"社保代扣": 108_000.0},
+        ),
     ]
     add = Reconciler(AggregatorPolicy(strategy=Strategy.ADDITIVE)).reconcile(sources)
-    summed = add["merged"]["社保代扣"]
+    summed = add.merged["社保代扣"]
     # 对照：competing 策略能把这对冲突聚成两簇、定位到分歧
     comp = Reconciler(tol=1.0).reconcile(sources)
-    located = [rc["item"] for rc in comp["root_causes"]]
+    located = [verdict.item for verdict in comp.attributable_divergences]
     return {"gap": "加和吞冲突", "pattern": "C2 扇出聚合",
             "leaked": summed == 228_000.0 and "社保代扣" in located,
             "evidence": f"两源冲突(12万/10.8万)：additive求和={summed:.0f}(分歧被抹平)  "
