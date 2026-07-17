@@ -7,7 +7,7 @@
 >
 > **Citation discipline**: course lectures, whitepapers, and book chapters that quote an interface must pin the commit (`pattern.py@<hash>` in the document header). Interfaces do refactor; a pinned quote stays honest, an unpinned one rots.
 
-Generated 2026-07-17 at HEAD `594304a` (working tree has uncommitted changes).
+Generated 2026-07-17 at HEAD `8aa5a33` (working tree has uncommitted changes).
 
 ## Summary
 
@@ -34,7 +34,7 @@ Generated 2026-07-17 at HEAD `594304a` (working tree has uncommitted changes).
 | F3 经验回放 Experience Replay | 反思 × 层级 | `ExperienceStore` | 07-17 |
 | F4 自愈循环 Self-Heal Loop | 反思 × 循环 | `SelfHealLoop` | 07-17 |
 | C1 层级委派 Hierarchical Delegation | 协作 × 层级 | `SettlementSupervisor` | 07-17 |
-| C2 扇出聚合 Fan-out / Gather | 协作 × 并行 | `FanOutGather` | 07-01 |
+| C2 扇出聚合 Fan-out / Gather | 协作 × 并行 | `FanOutGather` | 07-17 |
 | C3 对抗评审 Adversarial Review | 协作 × 循环 | `AdversarialReview` | 07-01 |
 | C4 交接链 Handoff Chain | 协作 × 链式 | `HandoffChain` | 07-01 |
 | Shared 协作边界契约 Collaboration Boundary Contract | 协作横切接口 | `TaskContract` → `AcceptanceReceipt` | 07-17 |
@@ -298,15 +298,13 @@ Generated 2026-07-17 at HEAD `594304a` (working tree has uncommitted changes).
 ### C2 扇出聚合 Fan-out / Gather — `collaboration/b-fan-out-gather/`
 
 - **Coordinate**: 协作 × 并行
-- **State**: `pattern.py` 214 lines · last commit ee22a46 2026-07-01 · clean · tests: yes
-- **Summary**: Fan-out-Gather pattern.
-- **Public API**: `Strategy` *enum*; `Layer` *enum*; `SourceResult` *dataclass*; `AggregatorPolicy` *dataclass*; `LineItemVerdict` *dataclass*; `Reconciler` *class*(reconcile); `FanOutGather` *class*(run)
+- **State**: `pattern.py` 851 lines · last commit 8aa5a33 2026-07-17 · clean · tests: yes
+- **Summary**: Fan-out / Gather pattern.
+- **Public API**: `Strategy` *enum*; `Layer` *enum*; `ContributionRule` *enum*; `ReconciliationStatus` *enum*; `Tolerance` *dataclass*(matches); `SourceSpec` *dataclass*; `SourceResult` *dataclass*(from_mapping, ok, values); `ConflictResolution` *dataclass*; `LineItemVerdict` *dataclass*(values); `MergedItem` *dataclass*; `ReconciliationReport` *dataclass*(agreed_items, attributable_divergences, to_human, merged, total); `AggregatorPolicy` *dataclass*; `SourceAdmissionPolicy` *dataclass*(evaluate); `Reconciler` *class*(reconcile); `AggregationBoundary` *dataclass*(evaluate); `AggregationRun` *dataclass*(report); `FanOutGather` *class*(handoff_for, run)
+- **Module functions**: `bind_source_result`
 - **Contract lines (from docstring)**:
-  - Like the sibling patterns this file is small (~150 lines) and is not a framework.
-  - real agents into the same shape; the reconciler under test never changes.
-  - bound to an *attributable* boundary (one data source), the workers'
-  - divergence stops being noise and becomes a locator: agree -> not here;
-  - that does not -> human review. Encoded in :meth:`Reconciler.reconcile`.
+  - Every source must return a contract-bound artifact.
+  - The gather must apply explicit comparison or contribution semantics.
 
 ### C3 对抗评审 Adversarial Review — `collaboration/c-adversarial-review/`
 
