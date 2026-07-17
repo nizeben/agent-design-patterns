@@ -56,7 +56,7 @@ VECTOR_META = {
     },
     "V5": {
         "name": "高风险输入输出",
-        "pattern": "守卫三明治",
+        "pattern": "护栏三明治",
         "stimulus": "异常金额进入工具参数，完整账号进入外发结果",
     },
 }
@@ -273,7 +273,7 @@ def vector_high_risk_io(defended: bool) -> dict[str, Any]:
         "id": "V5",
         **VECTOR_META["V5"],
         "defended": defended,
-        "configuration": "守卫三明治（PRE/POST）" if defended else "直接执行",
+        "configuration": "护栏三明治（PRE/POST）" if defended else "直接执行",
         "safe": safe,
         "evidence": (
             f"异常转账执行次数={len(executed_amounts)}，PRE={pre_status}，"

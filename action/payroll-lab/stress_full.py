@@ -33,8 +33,8 @@ LEVELS = [
     {"id": "L4", "title": "+ 提示链", "controls": ["最简工具集", "工具调度", "规划执行", "提示链"]},
     {
         "id": "L5",
-        "title": "+ 守卫三明治",
-        "controls": ["最简工具集", "工具调度", "规划执行", "提示链", "守卫三明治"],
+        "title": "+ 护栏三明治",
+        "controls": ["最简工具集", "工具调度", "规划执行", "提示链", "护栏三明治"],
     },
 ]
 VECTOR_NAMES = {
@@ -71,7 +71,7 @@ def run_level_matrix(level: dict[str, Any]) -> dict[str, Any]:
     for vector_id, control in (
         ("V3", "规划执行"),
         ("V4", "提示链"),
-        ("V5", "守卫三明治"),
+        ("V5", "护栏三明治"),
     ):
         result = run_vector(vector_id, defended=control in controls)
         cells[vector_id] = {

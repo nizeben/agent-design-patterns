@@ -73,7 +73,7 @@ LECTURES: dict[str, dict[str, Any]] = {
     },
     "25": {
         "number": "25",
-        "title": "守卫三明治",
+        "title": "护栏三明治",
         "pattern": "Guardrail Sandwich",
         "coordinate": "Action x Hierarchy",
         "question": "高风险动作发生前后，分别要留下什么控制？",
@@ -95,15 +95,15 @@ STRESS_LEVELS: list[dict[str, Any]] = [
     {"id": "L4", "title": "提示链", "adds": "提示链", "note": "污染工件必须通过链外账本校验"},
     {
         "id": "L5",
-        "title": "守卫三明治",
-        "adds": "守卫三明治",
+        "title": "护栏三明治",
+        "adds": "护栏三明治",
         "note": "高风险输入与输出经过 PRE/POST",
     },
 ]
 STRESS_VECTORS = [
     {"id": "V3", "lecture": "23", "title": "中途超时后整批重跑", "pattern": "规划执行"},
     {"id": "V4", "lecture": "24", "title": "污染工件向后传递", "pattern": "提示链"},
-    {"id": "V5", "lecture": "25", "title": "高风险输入输出", "pattern": "守卫三明治"},
+    {"id": "V5", "lecture": "25", "title": "高风险输入输出", "pattern": "护栏三明治"},
 ]
 STRESS_META = {
     "title": "行动压力工作台",

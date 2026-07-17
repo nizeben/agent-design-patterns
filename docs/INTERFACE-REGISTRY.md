@@ -7,7 +7,7 @@
 >
 > **Citation discipline**: course lectures, whitepapers, and book chapters that quote an interface must pin the commit (`pattern.py@<hash>` in the document header). Interfaces do refactor; a pinned quote stays honest, an unpinned one rots.
 
-Generated 2026-07-17 at HEAD `de5e297` (working tree has uncommitted changes).
+Generated 2026-07-17 at HEAD `d5e77ae` (working tree has uncommitted changes).
 
 ## Summary
 
@@ -28,7 +28,7 @@ Generated 2026-07-17 at HEAD `de5e297` (working tree has uncommitted changes).
 | A1 工具调度 Tool Dispatch | 行动 × 路由 | `ToolDispatcher` | 05-19 |
 | A2 规划执行 Plan-and-Execute | 行动 × 编排 | `Executor` | 07-16 |
 | A3 提示链 Prompt Chaining | 行动 × 链式 | `PromptChain` | 07-16 |
-| A4 守卫三明治 Guardrail Sandwich | 行动 × 层级 | `GuardrailSandwich` | 07-16 |
+| A4 护栏三明治 Guardrail Sandwich | 行动 × 层级 | `GuardrailSandwich` | 07-16 |
 | F1 生成批评 Generator-Critic | 反思 × 链式 | `GeneratorCriticChain` | 07-17 |
 | F2 技能包 Skill Package | 反思 × 路由 | `SkillLibrary` | 07-17 |
 | F3 经验回放 Experience Replay | 反思 × 层级 | `ExperienceStore` | 07-17 |
@@ -214,7 +214,7 @@ Generated 2026-07-17 at HEAD `de5e297` (working tree has uncommitted changes).
   - access to all *prior* outputs (not just the immediately previous
   - tolerable* outputs, not perfect ones; the retry budget is the
 
-### A4 守卫三明治 Guardrail Sandwich — `action/d-guardrail-sandwich/`
+### A4 护栏三明治 Guardrail Sandwich — `action/d-guardrail-sandwich/`
 
 - **Coordinate**: 行动 × 层级
 - **State**: `pattern.py` 406 lines · last commit d7932e8 2026-07-16 · clean · tests: yes
