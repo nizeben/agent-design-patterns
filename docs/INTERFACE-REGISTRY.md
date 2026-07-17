@@ -7,7 +7,7 @@
 >
 > **Citation discipline**: course lectures, whitepapers, and book chapters that quote an interface must pin the commit (`pattern.py@<hash>` in the document header). Interfaces do refactor; a pinned quote stays honest, an unpinned one rots.
 
-Generated 2026-07-16 at HEAD `d7932e8` (working tree has uncommitted changes).
+Generated 2026-07-17 at HEAD `27e920b` (working tree has uncommitted changes).
 
 ## Summary
 
@@ -29,10 +29,10 @@ Generated 2026-07-16 at HEAD `d7932e8` (working tree has uncommitted changes).
 | A2 规划执行 Plan-and-Execute | 行动 × 编排 | `Executor` | 07-16 |
 | A3 提示链 Prompt Chaining | 行动 × 链式 | `PromptChain` | 07-16 |
 | A4 守卫三明治 Guardrail Sandwich | 行动 × 层级 | `GuardrailSandwich` | 07-16 |
-| F1 生成批评 Generator-Critic | 反思 × 链式 | `GeneratorCriticChain` | 07-12 ⚠ dirty |
-| F2 技能包 Skill Package | 反思 × 路由 | `SkillLibrary` | 07-12 ⚠ dirty |
-| F3 经验回放 Experience Replay | 反思 × 层级 | `ExperienceStore` | 07-12 |
-| F4 自愈循环 Self-Heal Loop | 反思 × 循环 | `SelfHealLoop` | 07-12 ⚠ dirty |
+| F1 生成批评 Generator-Critic | 反思 × 链式 | `GeneratorCriticChain` | 07-17 |
+| F2 技能包 Skill Package | 反思 × 路由 | `SkillLibrary` | 07-17 |
+| F3 经验回放 Experience Replay | 反思 × 层级 | `ExperienceStore` | 07-17 |
+| F4 自愈循环 Self-Heal Loop | 反思 × 循环 | `SelfHealLoop` | 07-17 |
 | C1 层级委派 Hierarchical Delegation | 协作 × 层级 | `SettlementSupervisor` | 07-01 |
 | C2 扇出聚合 Fan-out / Gather | 协作 × 并行 | `FanOutGather` | 07-01 |
 | C3 对抗评审 Adversarial Review | 协作 × 循环 | `AdversarialReview` | 07-01 |
@@ -233,7 +233,7 @@ Generated 2026-07-16 at HEAD `d7932e8` (working tree has uncommitted changes).
 ### F1 生成批评 Generator-Critic — `reflection/a-generator-critic/`
 
 - **Coordinate**: 反思 × 链式
-- **State**: `pattern.py` 192 lines · last commit 5eae0f7 2026-07-12 · **UNCOMMITTED CHANGES** · tests: yes
+- **State**: `pattern.py` 200 lines · last commit adc1b24 2026-07-17 · clean · tests: yes
 - **Summary**: Generator-Critic reference interface.
 - **Public API**: `Severity` *enum*; `Decision` *enum*; `Issue` *dataclass*(grounded); `Artifact` *dataclass*(revise); `Critique` *dataclass*(blockers, warnings, ungrounded); `AcceptancePolicy` *dataclass*(decide); `ChainResult` *dataclass*(artifact, requires_re_review); `GeneratorCriticChain` *class*(run, review)
 - **Contract lines (from docstring)**:
@@ -246,7 +246,7 @@ Generated 2026-07-16 at HEAD `d7932e8` (working tree has uncommitted changes).
 ### F2 技能包 Skill Package — `reflection/b-skill-package/`
 
 - **Coordinate**: 反思 × 路由
-- **State**: `pattern.py` 196 lines · last commit ab7f5e0 2026-07-12 · **UNCOMMITTED CHANGES** · tests: yes
+- **State**: `pattern.py` 211 lines · last commit 27e920b 2026-07-17 · clean · tests: yes
 - **Summary**: Skill Package pattern.
 - **Public API**: `SkillStatus` *enum*; `GoldenQuestion` *dataclass*; `Skill` *dataclass*(success_rate); `VerificationReport` *dataclass*; `RouteDecision` *dataclass*; `SkillLibrary` *class*(add, verify, route, record_use, retire)
 - **Module functions**: `distill_from_trace`
@@ -266,7 +266,7 @@ Generated 2026-07-16 at HEAD `d7932e8` (working tree has uncommitted changes).
 ### F3 经验回放 Experience Replay — `reflection/c-experience-replay/`
 
 - **Coordinate**: 反思 × 层级
-- **State**: `pattern.py` 165 lines · last commit 4d30432 2026-07-12 · clean · tests: none
+- **State**: `pattern.py` 174 lines · last commit f00cc6c 2026-07-17 · clean · tests: yes
 - **Summary**: Experience Replay pattern.
 - **Public API**: `Experience` *dataclass*(reuses); `Heuristic` *dataclass*; `ExperienceStore` *class*(record, retrieve, render, feedback, distill, graduation_candidates)
 - **Contract lines (from docstring)**:
@@ -277,7 +277,7 @@ Generated 2026-07-16 at HEAD `d7932e8` (working tree has uncommitted changes).
 ### F4 自愈循环 Self-Heal Loop — `reflection/d-self-heal-loop/`
 
 - **Coordinate**: 反思 × 循环
-- **State**: `pattern.py` 246 lines · last commit ff0e955 2026-07-12 · **UNCOMMITTED CHANGES** · tests: yes
+- **State**: `pattern.py` 250 lines · last commit b37d023 2026-07-17 · clean · tests: yes
 - **Summary**: Self-Heal Loop reference implementation.
 - **Public API**: `HealStatus` *enum*; `FailureSignal` *dataclass*(signature); `Patch` *dataclass*(fingerprint, touches_tests); `StabilityPolicy` *dataclass*; `HealRound` *dataclass*; `HealTrace` *dataclass*(baseline_restored); `SelfHealLoop` *class*(heal)
 - **Module functions**: `propose_guard`
