@@ -1,146 +1,200 @@
-"""Generator-Critic pattern.
+"""Generator-Critic reference interface.
 
-Reference implementation from column lecture 06-02 (27). The claim:
-**a critic is only as good as the external signals wired into it.**
-A critic that re-reads the draft can check format and consistency; only
-a critic wired to reconciliation tests, schemas, and databases can check
-truth. And "no changes needed" must be a legal verdict -- a critic that
-is not allowed to approve will invent problems, and the revisions then
-degrade a correct draft.
+Generator-Critic is the Reflect x Chain pattern. One pass has a fixed shape:
 
-Chain topology, not a loop: generate -> critique -> revise, bounded by
-`max_rounds` (Aider hardcodes 3 in base_coder.py and stops with a warning).
-Exhausted rounds hand the draft to a human; the last draft is never
-silently shipped.
+    generate -> critique -> policy gate -> optional revision draft
 
-Three roles:
+The critic reports evidence about the artifact. It does not approve the artifact.
+The deterministic policy owns acceptance. A revision produced at the end of the
+pass is explicitly unreviewed and therefore cannot be accepted by the same pass.
 
-* `Finding` — one critique finding: which check produced it, severity,
-  message, and **evidence**. The meta-gate drops findings that carry no
-  evidence (they are logged, not acted on). This is "who checks the
-  critic": a critic hallucinating a problem cannot trigger a revision.
-* `Critic` — a bundle of named checks. Each check is deterministic code
-  or a tool / database call. LLM-based checks are allowed, but they must
-  attach evidence like everyone else.
-* `GeneratorCritic` — runs the chain, records the full trace, stops on a
-  clean verdict or exhausted rounds. Severity matters: findings below
-  `block_at` are recorded but do not trigger another round, which is
-  what closes the nitpick spiral.
-
-Named failure modes:
-
-* **Rubber stamp** — a critic with no external signal approves anything
-  that reads well. Lecture 26's introspection demo, at pattern level.
-* **Invented problems** — a critic that may not approve always finds
-  something. Closed by making the clean verdict legal and by the
-  evidence gate.
-* **Nitpick spiral** — style findings trigger endless revision. Closed
-  by `block_at` + the round budget.
+Repeating review and repair until a deterministic signal turns green belongs to
+the sibling Self-Heal Loop pattern. An outer workflow may schedule another
+Generator-Critic pass, but the loop is not hidden inside this interface.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import IntEnum
+from enum import Enum
 from typing import Callable
 
 
-class Severity(IntEnum):
-    MINOR = 1      # style, wording — recorded, never blocks
-    MAJOR = 2      # wrong structure, missing required parts
-    BLOCKER = 3    # contradicts an external source of truth
+class Severity(str, Enum):
+    """How strongly an issue should affect the policy gate."""
+
+    BLOCKER = "blocker"
+    WARNING = "warning"
+    INFO = "info"
 
 
-@dataclass
-class Finding:
-    """One critique finding. `evidence` is what the check actually saw —
-    a ledger count, a schema key, a policy clause. Empty evidence means
-    the finding is an opinion, and opinions do not trigger revisions."""
+class Decision(str, Enum):
+    """Deterministic result for the artifact that was actually reviewed."""
 
-    check: str
+    ACCEPTED = "accepted"
+    NEEDS_REVISION = "needs_revision"
+
+
+@dataclass(frozen=True)
+class Issue:
+    """One concrete issue reported by the critic.
+
+    ``evidence`` records what the check observed, such as a ledger query, schema
+    clause, source citation, or quoted span. A policy can require evidence before
+    an issue is allowed to trigger an automatic revision.
+    """
+
     severity: Severity
     message: str
+    location: str = ""
     evidence: str = ""
+    check: str = ""
+
+    @property
+    def grounded(self) -> bool:
+        return bool(self.evidence.strip())
 
 
-@dataclass
-class CritiqueReport:
-    round: int
-    findings: list[Finding] = field(default_factory=list)
-    dropped: list[Finding] = field(default_factory=list)   # failed the evidence gate
+@dataclass(frozen=True)
+class Artifact:
+    """The generated object under review."""
 
-    def blocking(self, block_at: Severity) -> list[Finding]:
-        return [f for f in self.findings if f.severity >= block_at]
+    content: str
+    revision: int = 0
+    metadata: dict[str, str] = field(default_factory=dict)
 
-
-# A check inspects the draft and returns findings (possibly none).
-CheckFn = Callable[[str], list[Finding]]
-# A generator takes the brief + the blocking findings from the last round
-# and returns a (possibly revised) draft.
-GeneratorFn = Callable[[str, list[Finding]], str]
+    def revise(self, content: str, *, note: str = "") -> Artifact:
+        metadata = dict(self.metadata)
+        if note:
+            metadata["revision_note"] = note
+        return Artifact(content=content, revision=self.revision + 1, metadata=metadata)
 
 
-class Critic:
-    """A bundle of named external checks + the evidence meta-gate."""
+@dataclass(frozen=True)
+class Critique:
+    """The critic's evidence. It can report issues, never approve directly."""
 
-    def __init__(self, checks: dict[str, CheckFn]) -> None:
-        self.checks = checks
+    score: float
+    issues: list[Issue]
+    summary: str
+    score_evidence: str = ""
 
-    def review(self, draft: str, round_no: int) -> CritiqueReport:
-        report = CritiqueReport(round=round_no)
-        for name, check in self.checks.items():
-            for finding in check(draft):
-                if finding.evidence:
-                    report.findings.append(finding)
-                else:
-                    report.dropped.append(finding)
-        return report
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.score <= 1.0:
+            raise ValueError("score must be between 0.0 and 1.0")
 
+    def blockers(self) -> list[Issue]:
+        return [issue for issue in self.issues if issue.severity is Severity.BLOCKER]
 
-@dataclass
-class GCRound:
-    draft: str
-    report: CritiqueReport
+    def warnings(self) -> list[Issue]:
+        return [issue for issue in self.issues if issue.severity is Severity.WARNING]
 
-
-@dataclass
-class GCTrace:
-    brief: str
-    rounds: list[GCRound] = field(default_factory=list)
-    final_draft: str = ""
-    status: str = "pending"        # clean | rounds_exhausted
-    started_at: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    def ungrounded(self) -> list[Issue]:
+        return [issue for issue in self.issues if not issue.grounded]
 
 
-class GeneratorCritic:
-    """The bounded generate -> critique -> revise chain."""
+@dataclass(frozen=True)
+class AcceptancePolicy:
+    """Deterministic gate between critic evidence and a shipping decision."""
+
+    min_score: float = 0.8
+    allow_warnings: bool = True
+    require_evidence: bool = True
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.min_score <= 1.0:
+            raise ValueError("min_score must be between 0.0 and 1.0")
+
+    def _actionable(self, issues: list[Issue]) -> list[Issue]:
+        if not self.require_evidence:
+            return issues
+        return [issue for issue in issues if issue.grounded]
+
+    def _score_is_actionable(self, critique: Critique) -> bool:
+        if critique.score >= self.min_score:
+            return False
+        if not self.require_evidence:
+            return True
+        return bool(critique.score_evidence.strip())
+
+    def decide(self, critique: Critique) -> Decision:
+        if self._actionable(critique.blockers()):
+            return Decision.NEEDS_REVISION
+        if not self.allow_warnings and self._actionable(critique.warnings()):
+            return Decision.NEEDS_REVISION
+        if self._score_is_actionable(critique):
+            return Decision.NEEDS_REVISION
+        return Decision.ACCEPTED
+
+
+Generator = Callable[[str], Artifact]
+CriticFn = Callable[[Artifact], Critique]
+Reviser = Callable[[Artifact, Critique], Artifact]
+
+
+@dataclass(frozen=True)
+class ChainResult:
+    """Auditable output of exactly one Generator-Critic pass."""
+
+    decision: Decision
+    reviewed_artifact: Artifact
+    critique: Critique
+    revision_draft: Artifact | None
+    trace: tuple[str, ...]
+
+    @property
+    def artifact(self) -> Artifact:
+        """Compatibility view: the newest artifact produced by this pass."""
+
+        return self.revision_draft or self.reviewed_artifact
+
+    @property
+    def requires_re_review(self) -> bool:
+        return self.revision_draft is not None
+
+
+class GeneratorCriticChain:
+    """Run one bounded Generator-Critic pass.
+
+    ``run`` starts from a prompt and invokes the generator. ``review`` starts
+    from an existing artifact, which is useful when an outer workflow explicitly
+    submits a revision for another pass. Neither method contains a retry loop.
+    """
 
     def __init__(
         self,
-        generator: GeneratorFn,
-        critic: Critic,
-        max_rounds: int = 3,
-        block_at: Severity = Severity.MAJOR,
+        generator: Generator,
+        critic: CriticFn,
+        reviser: Reviser | None = None,
+        policy: AcceptancePolicy | None = None,
     ) -> None:
         self.generator = generator
         self.critic = critic
-        self.max_rounds = max_rounds
-        self.block_at = block_at
+        self.reviser = reviser
+        self.policy = policy or AcceptancePolicy()
 
-    def run(self, brief: str) -> GCTrace:
-        trace = GCTrace(brief=brief)
-        blocking: list[Finding] = []
-        for round_no in range(1, self.max_rounds + 1):
-            draft = self.generator(brief, blocking)
-            report = self.critic.review(draft, round_no)
-            trace.rounds.append(GCRound(draft=draft, report=report))
-            blocking = report.blocking(self.block_at)
-            if not blocking:
-                trace.final_draft = draft
-                trace.status = "clean"
-                return trace
-        # Rounds exhausted: never silently ship the last draft.
-        trace.final_draft = trace.rounds[-1].draft
-        trace.status = "rounds_exhausted"
-        return trace
+    def run(self, prompt: str) -> ChainResult:
+        artifact = self.generator(prompt)
+        return self._review(artifact, trace=["generated"])
+
+    def review(self, artifact: Artifact) -> ChainResult:
+        return self._review(artifact, trace=["artifact_received"])
+
+    def _review(self, artifact: Artifact, *, trace: list[str]) -> ChainResult:
+        critique = self.critic(artifact)
+        trace.append("critiqued")
+
+        decision = self.policy.decide(critique)
+        trace.append(decision.value)
+
+        revision_draft = None
+        if decision is Decision.NEEDS_REVISION and self.reviser is not None:
+            revision_draft = self.reviser(artifact, critique)
+            trace.append("revision_drafted")
+
+        return ChainResult(
+            decision=decision,
+            reviewed_artifact=artifact,
+            critique=critique,
+            revision_draft=revision_draft,
+            trace=tuple(trace),
+        )
