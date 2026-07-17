@@ -13,6 +13,7 @@ sys.modules.pop("pattern", None)
 
 from pattern import (  # noqa: E402
     AcceptanceDecision,
+    FactRecord,
     FactRule,
     FactValue,
     HandoffChain,
@@ -240,6 +241,25 @@ def test_stage_receives_a_detached_read_only_snapshot() -> None:
 
     assert observed["intent"] == "keep me"
     assert result.baton.facts["profile"] == {"vip": True}
+
+
+def test_committed_record_values_are_exposed_as_detached_copies() -> None:
+    result = asyncio.run(good_chain().run(initial()))
+
+    exposed = result.baton.fact_record("city").value
+    assert exposed == "Shanghai"
+
+    nested = FactRecord(
+        key="profile",
+        value={"roles": ["traveler"]},
+        producer_stage="intent",
+        stage_run_id="run-1",
+        evidence_refs=("request://profile",),
+    )
+    exposed_nested = nested.value
+    exposed_nested["roles"].append("admin")
+
+    assert nested.value == {"roles": ["traveler"]}
 
 
 def test_stage_cannot_tamper_with_the_snapshot_used_by_a_validator() -> None:

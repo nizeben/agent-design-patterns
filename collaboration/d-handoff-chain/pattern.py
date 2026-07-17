@@ -28,7 +28,7 @@ import hashlib
 import json
 import sys
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Protocol
@@ -101,15 +101,30 @@ class FactRule:
             raise ValueError("validator must be callable")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class FactRecord:
     """A committed fact and its provenance."""
 
     key: str
-    value: Any
+    _value: Any = field(repr=False)
     producer_stage: str
     stage_run_id: str
     evidence_refs: tuple[str, ...]
+
+    def __init__(
+        self,
+        key: str,
+        value: Any,
+        producer_stage: str,
+        stage_run_id: str,
+        evidence_refs: tuple[str, ...],
+    ) -> None:
+        object.__setattr__(self, "key", key)
+        object.__setattr__(self, "_value", copy.deepcopy(value))
+        object.__setattr__(self, "producer_stage", producer_stage)
+        object.__setattr__(self, "stage_run_id", stage_run_id)
+        object.__setattr__(self, "evidence_refs", evidence_refs)
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         if not all(
@@ -117,7 +132,10 @@ class FactRecord:
             for value in (self.key, self.producer_stage, self.stage_run_id)
         ):
             raise ValueError("fact provenance fields must not be empty")
-        object.__setattr__(self, "value", copy.deepcopy(self.value))
+
+    @property
+    def value(self) -> Any:
+        return copy.deepcopy(self._value)
 
 
 @dataclass(frozen=True)
