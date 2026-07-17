@@ -179,8 +179,7 @@ class SkillLibrary:
         if success:
             skill.success_count += 1
         if (skill.use_count >= self.min_uses
-                and skill.success_rate < self.demote_below
-                and skill.status is SkillStatus.VERIFIED):
+                and skill.success_rate < self.demote_below):
             skill.status = SkillStatus.TRIAL     # must re-verify
         return skill
 
