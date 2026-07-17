@@ -7,7 +7,7 @@
 >
 > **Citation discipline**: course lectures, whitepapers, and book chapters that quote an interface must pin the commit (`pattern.py@<hash>` in the document header). Interfaces do refactor; a pinned quote stays honest, an unpinned one rots.
 
-Generated 2026-07-17 at HEAD `8aa5a33` (working tree has uncommitted changes).
+Generated 2026-07-17 at HEAD `a06e6e3` (working tree has uncommitted changes).
 
 ## Summary
 
@@ -35,7 +35,7 @@ Generated 2026-07-17 at HEAD `8aa5a33` (working tree has uncommitted changes).
 | F4 自愈循环 Self-Heal Loop | 反思 × 循环 | `SelfHealLoop` | 07-17 |
 | C1 层级委派 Hierarchical Delegation | 协作 × 层级 | `SettlementSupervisor` | 07-17 |
 | C2 扇出聚合 Fan-out / Gather | 协作 × 并行 | `FanOutGather` | 07-17 |
-| C3 对抗评审 Adversarial Review | 协作 × 循环 | `AdversarialReview` | 07-01 |
+| C3 对抗评审 Adversarial Review | 协作 × 循环 | `AdversarialReview` | 07-17 |
 | C4 交接链 Handoff Chain | 协作 × 链式 | `HandoffChain` | 07-01 |
 | Shared 协作边界契约 Collaboration Boundary Contract | 协作横切接口 | `TaskContract` → `AcceptanceReceipt` | 07-17 |
 | G1 审批门 Approval Gate | 治理 × 路由 | README only | no impl |
@@ -309,18 +309,16 @@ Generated 2026-07-17 at HEAD `8aa5a33` (working tree has uncommitted changes).
 ### C3 对抗评审 Adversarial Review — `collaboration/c-adversarial-review/`
 
 - **Coordinate**: 协作 × 循环
-- **State**: `pattern.py` 147 lines · last commit d9fa352 2026-07-01 · clean · tests: yes
+- **State**: `pattern.py` 648 lines · last commit a06e6e3 2026-07-17 · clean · tests: yes
 - **Summary**: Adversarial Review pattern.
-- **Public API**: `Severity` *enum*; `Outcome` *enum*; `Itinerary` *dataclass*; `Objection` *dataclass*; `IndependenceGuard` *class*(check); `ReviewGate` *class*(open_blockers, may_confirm); `AdversarialReview` *class*(run)
+- **Public API**: `Outcome` *enum*; `Objection` *dataclass*; `ReviewPolicy` *dataclass*; `ReviewRequest` *dataclass*; `ReviewFn` *class*; `ReviseFn` *class*; `ReviewerSpec` *dataclass*; `ReviserSpec` *dataclass*; `ReviewerFailure` *dataclass*; `ReviewReceipt` *dataclass*(blockers, complete); `ReviewPanel` *dataclass*(review); `IndependenceGuard` *dataclass*(evaluate); `ReviewGate` *dataclass*(may_confirm); `ReviewRound` *dataclass*; `ReviewRun` *dataclass*(latest_review); `AdversarialReview` *class*(run)
 - **Contract lines (from docstring)**:
-  - purpose only: to attack it. Not to help write it, not to co-sign it — to find the
-  - Like the sibling patterns this file is small (~150 lines) and is not a framework.
-  - **The Three Isolations of Independence** (独立性三隔离) — a reviewer is only
-  - plan, not the planner's private reasoning), *objective* (its job is to find
-  - blockers, not to approve), and *identity* (a different agent, not the same one
-  - **Objections, never endorsement** (只提异议不背书) — the reviewer returns a list
-  - decided by a deterministic :class:`ReviewGate` (zero open blockers), never by the
-- **Note**: Interface is single-round (run once, gate decides); the canonical coordinate 协作 × 循环 refers to the review-revise cycle owned by the outer workflow, mirroring how Generator-Critic keeps its loop outside the interface.
+  - A candidate artifact crosses a release boundary only after independent reviewers
+  - return machine-readable objections against a versioned rubric. Reviewers must
+  - return objections, never endorsement. A deterministic gate combines declared
+  - This module owns the loop topology: review the current artifact, revise only
+  - version. The final round never creates an unreviewed replacement artifact.
+- **Note**: The interface owns a bounded review-revise-review loop. Each round produces a ReviewReceipt bound to the current artifact fingerprint and rubric version; the final round cannot create an unreviewed replacement artifact.
 
 ### C4 交接链 Handoff Chain — `collaboration/d-handoff-chain/`
 

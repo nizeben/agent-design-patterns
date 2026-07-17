@@ -75,10 +75,10 @@ NOTES: dict[str, str] = {
         "2026-07-16: core patterns hold 1-4 per row, extensions start at 5.)"
     ),
     "collaboration/c-adversarial-review": (
-        "Interface is single-round (run once, gate decides); the canonical "
-        "coordinate 协作 × 循环 refers to the review-revise cycle owned by "
-        "the outer workflow, mirroring how Generator-Critic keeps its loop "
-        "outside the interface."
+        "The interface owns a bounded review-revise-review loop. Each round "
+        "produces a ReviewReceipt bound to the current artifact fingerprint "
+        "and rubric version; the final round cannot create an unreviewed "
+        "replacement artifact."
     ),
 }
 
