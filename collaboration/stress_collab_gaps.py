@@ -228,33 +228,83 @@ def gap_reviewer_blind_spot() -> dict:
 
 
 # ── G4 · 交接链 · 查存在不查值 ──────────────────────────────────────────────
-# 教学版接缝校验查 provides/requires 的 key 在不在 baton 上。压力：核算这棒确实交付了
-# net_amount 这个 key，但值是错的（-500，一个负的发薪额）。key 在，接缝校验全过，
-# 打款那棒拿到 -500 照付。接缝保证了『交付了』，没保证『交付对了』。
+# 薄契约检查 provides/requires、生产者、类型和证据，却没有给 net_amount 配业务
+# validator。压力：核算交付 -500，所有声明都成立，打款照付。接口能严格执行规则，
+# 不能替规则制定者补上遗漏的控制账本语义。
 
 def gap_present_but_wrong() -> dict:
-    Baton = HANDOFF.Baton
+    FactRule = HANDOFF.FactRule
+    FactValue = HANDOFF.FactValue
     StageSpec = HANDOFF.StageSpec
+    StageBinding = HANDOFF.StageBinding
+    StageDelta = HANDOFF.StageDelta
     HandoffChain = HANDOFF.HandoffChain
+    TaskContract = HANDOFF.TaskContract
+    new_baton = HANDOFF.new_baton
 
     paid_amount = {}
 
-    async def intent(b):   return {"facts": {"emp": "E0007", "month": "2026-06"}}
-    async def settle(b):   return {"facts": {"net_amount": -500.0}}   # key 在，值是错的
-    async def pay(b):
-        paid_amount["v"] = b.facts["net_amount"]
-        return {"facts": {"paid": True}}
+    async def settle(view):
+        return StageDelta(
+            facts=(
+                FactValue(
+                    "net_amount",
+                    -500.0,
+                    ("ledger://teaching-negative-net",),
+                ),
+            )
+        )
 
-    specs = [
-        (StageSpec("intent", provides=("emp", "month")), intent),
-        (StageSpec("settle", requires=("emp", "month"), provides=("net_amount",)), settle),
-        (StageSpec("pay", requires=("net_amount",), provides=("paid",)), pay),
-    ]
-    baton = asyncio.run(HandoffChain(specs).run(Baton(intent="发薪")))
+    async def pay(view):
+        paid_amount["v"] = view.facts["net_amount"]
+        return StageDelta(
+            facts=(
+                FactValue("paid", True, ("payment://teaching",)),
+            )
+        )
+
+    contract = TaskContract(
+        contract_id="stress-negative-net",
+        version=1,
+        objective="show the boundary of a thin handoff contract",
+        output_schema="StressBaton",
+        accountable_owner="stress-controller",
+    )
+    chain = HandoffChain(
+        contract,
+        (
+            StageBinding(
+                StageSpec("settle", provides=("net_amount",)),
+                settle,
+            ),
+            StageBinding(
+                StageSpec(
+                    "pay",
+                    requires=("net_amount",),
+                    provides=("paid",),
+                ),
+                pay,
+            ),
+        ),
+        (
+            FactRule("net_amount", "settle", float),
+            FactRule("paid", "pay", bool),
+        ),
+    )
+    run = asyncio.run(
+        chain.run(
+            new_baton(
+                contract,
+                baton_id="stress-negative-net",
+                intent="发薪",
+            )
+        )
+    )
+    baton = run.baton
     return {"gap": "查存在不查值", "pattern": "C4 交接链",
             "leaked": baton.facts.get("paid") is True and paid_amount["v"] < 0,
-            "evidence": f"核算交付 net_amount={paid_amount['v']:.0f}(负数)，key在→接缝全过 → "
-                        f"打款照付(paid={baton.facts.get('paid')})"}
+            "evidence": f"核算交付 net_amount={paid_amount['v']:.0f}(负数)，"
+                        f"薄规则全过 → 打款照付(paid={baton.facts.get('paid')})"}
 
 
 GAPS = [gap_aggregate_blindness, gap_additive_masks_conflict,
@@ -273,7 +323,7 @@ def report() -> None:
         assert r["leaked"], f"{r['gap']} 未如期暴露"
     print("\n" + "-" * 78)
     print("四条都来自接口或配置边界：组合线要显式配置 / additive 不辨冲突与重复 /")
-    print("评审闸不能补全残缺规则目录 / 接缝查 key 不查值。这是从教学接口走向生产配置的路。")
+    print("评审闸不能补全残缺规则目录 / 薄接缝规则不懂控制账本。这是从教学接口走向生产配置的路。")
     print("=" * 78)
 
 

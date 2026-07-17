@@ -1,4 +1,4 @@
-"""Invariant tests for the lecture-35 handoff-chain lab."""
+"""End-to-end checks for the lecture 35 handoff-chain lab."""
 from __future__ import annotations
 
 import asyncio
@@ -8,113 +8,197 @@ from pathlib import Path
 
 import pytest
 
+
 HERE = Path(__file__).parent
 
 
-def _load(path: Path, name: str):
+def load_module(path: Path, name: str):
     spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
-lab = _load(HERE / "handoff_chain_lab.py", "handoff_lab")
-_hand = sys.modules["handoff_pattern"]
+lab = load_module(HERE / "handoff_chain_lab.py", "handoff_lab")
+handoff = sys.modules["handoff_pattern"]
 
 NET = 13_706_097.0
 GROSS = 13_744_541.0
 
 
-def test_clean_chain_pays_the_bank_sum_and_traces_every_stage():
+def test_clean_chain_pays_the_controlling_ledger_and_seals_receipts() -> None:
     con = lab.month_end()
-    baton, paid = lab.run_chain(con)
-    assert baton.trace == ["intent", "settle", "fund_check", "pay", "receipt"]
-    assert paid == {"total": NET, "lines": 798}
-    assert baton.facts["paid_total"] == NET
-    assert baton.facts["receipt_id"] == "rcpt-run-2026-06"
+    result, paid = lab.run_chain(con)
+    payment = lab.payment_record(paid)
+
+    assert result.baton.trace == (
+        "intent",
+        "settle",
+        "fund_check",
+        "pay",
+        "receipt",
+    )
+    assert result.baton.revision == 5
+    assert len(result.receipts) == 5
+    assert result.baton.stage_receipts == result.receipts
+    assert payment == {
+        "total": NET,
+        "lines": 798,
+        "payment_id": "payment-2026-06",
+    }
+    assert result.baton.facts["paid_total"] == NET
+    assert result.baton.facts["receipt_id"] == "rcpt-run-2026-06"
+    assert result.acceptance_receipt.accepted
+    assert result.acceptance_receipt.artifact_id == result.baton.snapshot_id
 
 
-def test_dropped_handoff_fails_at_the_seam_that_dropped_it():
+def test_settlement_receipt_binds_owned_facts_and_evidence() -> None:
+    con = lab.month_end()
+    result, _ = lab.run_chain(con)
+    receipt = result.receipts[1]
+
+    assert receipt.stage_name == "settle"
+    assert receipt.consumed_keys == ("month",)
+    assert receipt.produced_keys == ("net_total", "pay_lines")
+    assert receipt.evidence_refs == (
+        "sqlite://payroll.db/paid-ledger?month=2026-06",
+    )
+    assert result.baton.fact_record("net_total").producer_stage == "settle"
+
+
+def test_dropped_handoff_fails_at_settlement_checkpoint() -> None:
+    con = lab.month_end()
+
+    async def settle_forgets_total(view):
+        return handoff.StageDelta(
+            facts=(
+                handoff.FactValue(
+                    "pay_lines",
+                    lab.paid_lines(con),
+                    ("sqlite://paid-lines",),
+                ),
+            )
+        )
+
+    with pytest.raises(handoff.SeamError) as err:
+        lab.run_chain(
+            con,
+            replacements={"settle": settle_forgets_total},
+        )
+
+    assert err.value.stage_name == "settle"
+    assert err.value.code == "promised_fact_missing"
+    assert err.value.checkpoint.trace == ("intent",)
+    assert "net_total" in err.value.detail
+
+
+def test_later_stage_cannot_restate_an_owned_upstream_fact() -> None:
+    con = lab.month_end()
+
+    async def pay_restates_total(view):
+        return handoff.StageDelta(
+            facts=(
+                handoff.FactValue(
+                    "paid_total",
+                    view.facts["net_total"],
+                    ("payment://attempt",),
+                ),
+                handoff.FactValue(
+                    "payment_id",
+                    "payment-2026-06",
+                    ("payment://attempt",),
+                ),
+                handoff.FactValue(
+                    "net_total",
+                    view.facts["net_total"],
+                    ("payment://attempt",),
+                ),
+            )
+        )
+
+    with pytest.raises(handoff.SeamError) as err:
+        lab.run_chain(con, replacements={"pay": pay_restates_total})
+
+    assert err.value.stage_name == "pay"
+    assert err.value.code == "undeclared_fact"
+    assert "net_total" in err.value.detail
+
+
+def test_thin_contract_can_accept_the_wrong_obligation_total() -> None:
+    con = lab.month_end()
+    result, paid = lab.run_chain(
+        con,
+        semantic=False,
+        settlement="obligation",
+    )
+    payment = lab.payment_record(paid)
+
+    assert result.acceptance_receipt.accepted
+    assert payment["total"] == GROSS
+    assert payment["lines"] == 800
+    assert payment["total"] - NET == 38_444.0
+
+
+def test_release_contract_rejects_wrong_value_before_payment() -> None:
     con = lab.month_end()
     paid: dict = {}
-    stages = lab.make_stages(con, paid)
+    chain = lab.payroll_chain(
+        con,
+        paid,
+        semantic=True,
+        settlement="obligation",
+    )
 
-    async def settle_forgets(b):
-        return {"legs": [{"emp_id": "E0001", "amount": 8000.0}]}
+    with pytest.raises(handoff.SeamError) as err:
+        asyncio.run(
+            chain.run(
+                lab.new_baton(
+                    lab.payroll_contract(),
+                    baton_id="strict-payroll",
+                    intent="disburse salaries",
+                )
+            )
+        )
 
-    stages["settle"] = settle_forgets
-    with pytest.raises(_hand.SeamError) as err:
-        asyncio.run(lab.payroll_chain(stages).run(_hand.Baton(intent="disburse")))
-    assert "stage 'settle'" in str(err.value) and "net_total" in str(err.value)
-    assert paid == {}                       # pay never ran
+    assert err.value.stage_name == "settle"
+    assert err.value.code == "fact_semantic_violation"
+    assert "13,744,541.00" in err.value.detail
+    assert "13,706,097.00" in err.value.detail
+    assert err.value.checkpoint.trace == ("intent",)
+    assert paid == {}
 
 
-def test_append_only_refuses_a_rewrite_of_a_committed_fact():
+def test_payment_uses_stage_run_id_as_the_idempotency_key() -> None:
     con = lab.month_end()
-    paid: dict = {}
-    stages = lab.make_stages(con, paid)
-    real_pay = stages["pay"]
+    result, paid = lab.run_chain(con)
+    pay_receipt = result.receipts[3]
 
-    async def pay_rounds_down(b):
-        delta = await real_pay(b)
-        delta["facts"]["net_total"] = 13_706_000.0
-        return delta
-
-    stages["pay"] = pay_rounds_down
-    with pytest.raises(_hand.SeamError) as err:
-        asyncio.run(lab.payroll_chain(stages).run(_hand.Baton(intent="disburse")))
-    assert "append-only" in str(err.value) and "net_total" in str(err.value)
+    assert list(paid) == [pay_receipt.stage_run_id]
+    assert paid[pay_receipt.stage_run_id]["payment_id"] == "payment-2026-06"
 
 
-def test_rewriting_the_same_value_is_not_flagged():
-    """Documented subtlety: append-only compares values, so re-delivering an
-    identical value passes. Provenance of a fact is therefore ambiguous when
-    two stages deliver the same number."""
+def test_nested_stage_view_mutation_cannot_change_committed_pay_lines() -> None:
     con = lab.month_end()
-    paid: dict = {}
-    stages = lab.make_stages(con, paid)
-    real_pay = stages["pay"]
 
-    async def pay_restates(b):
-        delta = await real_pay(b)
-        delta["facts"]["net_total"] = b.facts["net_total"]   # same value again
-        return delta
+    async def fund_check_mutates_copy(view):
+        lines = view.facts["pay_lines"]
+        local = list(lines)
+        local.clear()
+        return handoff.StageDelta(
+            facts=(
+                handoff.FactValue(
+                    "funding_ok",
+                    True,
+                    ("treasury://available",),
+                ),
+            )
+        )
 
-    stages["pay"] = pay_restates
-    baton = asyncio.run(lab.payroll_chain(stages).run(_hand.Baton(intent="disburse")))
-    assert baton.facts["paid_total"] == NET
+    result, paid = lab.run_chain(
+        con,
+        replacements={"fund_check": fund_check_mutates_copy},
+    )
 
-
-def test_provides_can_be_satisfied_by_an_upstream_fact():
-    """Documented pattern boundary: the exit seam accepts a promised key that
-    is ALREADY on the baton, so a stage can 'deliver' without producing."""
-    spec = _hand.StageSpec("noop", provides=("net_total",))
-    baton = _hand.Baton(intent="x", facts={"net_total": 1.0})
-    _hand.HandoffChain._apply(spec, baton, {})     # no delta, no SeamError
-    assert baton.facts["net_total"] == 1.0
-
-
-def test_wrong_value_sails_through_every_existence_seam():
-    con = lab.month_end()
-    baton, paid = lab.run_chain(con, settle_key="settle_from_obligation")
-    assert baton.trace == ["intent", "settle", "fund_check", "pay", "receipt"]
-    assert paid["total"] == GROSS
-    assert paid["total"] - NET == 38_444.0     # lecture 34's money went out here
-
-
-def test_semantic_seam_kills_the_wrong_value_at_settle():
-    con = lab.month_end()
-    with pytest.raises(_hand.SeamError) as err:
-        lab.run_chain(con, settle_key="settle_from_obligation",
-                      wrap=lab.guarded(lab.make_contracts(con)))
-    msg = str(err.value)
-    assert "stage 'settle'" in msg and "net_total" in msg
-    assert "13,744,541.00" in msg and "13,706,097.00" in msg
-
-
-def test_semantic_seam_passes_the_clean_chain_untouched():
-    con = lab.month_end()
-    baton, paid = lab.run_chain(con, wrap=lab.guarded(lab.make_contracts(con)))
-    assert paid == {"total": NET, "lines": 798}
-    assert baton.facts["receipt_id"] == "rcpt-run-2026-06"
+    assert len(result.baton.facts["pay_lines"]) == 798
+    assert lab.payment_record(paid)["lines"] == 798
