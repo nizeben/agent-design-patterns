@@ -1,9 +1,13 @@
 """
-ADPS 双轴矩阵图片水印工具 · v5 (2026-07-18)
+ADPS 双轴矩阵图片水印工具 · v6 (2026-07-18)
 ==========================================
+v6 相对 v5 两个改动:
+- icon 里加回白点阵(6 cols × 7 rows),但这次**居中对齐**(不再挤在左上角) → 点阵铺满 icon 中心,象征 6×7 矩阵坐标系
+- A 三顶点加回白色 highlight 方块(vertex gems),让 A 立体感回来
+
 v5 相对 v4 一个改动:
-- icon 里的点阵去掉 (在 52-78px 小尺寸下点阵渲染不齐 · 与 A 字母比例失衡),
-  只保留 gold A 字母, 铅字更干净
+- icon 里的点阵去掉 (对齐问题), 只保留 gold A 字母
+  → v6 解决对齐后加回来
 
 v4 相对 v3 三个改动:
 1. 深底图上不再用白面板 (突兀), 改成半透明 navy 面板 + gold 描边, 与图融合
@@ -142,10 +146,30 @@ def build_watermark_tile(is_dark_bg: bool, scale: float = 1.0, lang: str = "both
         fill=NAVY,
     )
 
-    # v5: 去掉点阵, 只保留居中 gold A (在小尺寸下更耐看)
-    # A 在 64×64 参照系里居中: 左脚 (14,50) · 顶 (32,10) · 右脚 (50,50) · 交叉 (22,34)-(42,34)
+    # v6: 先画居中白点阵 (背景层, 象征 6 拓扑 × 7 认知功能坐标系), 再画金 A
     def _s(v):
         return int(v * (icon / 64.0))
+
+    # 点阵: 6 cols × 7 rows, 居中. 64×64 内, cols x = 12..52 (间隔 8), rows y = 11..53 (间隔 7)
+    n_cols_dot, n_rows_dot = 6, 7
+    col_spacing = _s(8)
+    row_spacing = _s(7)
+    grid_w = (n_cols_dot - 1) * col_spacing
+    grid_h = (n_rows_dot - 1) * row_spacing
+    grid_x0 = icon_x + (icon - grid_w) // 2
+    grid_y0 = icon_y + (icon - grid_h) // 2
+    dot_r = max(1, int(1.2 * scale))
+    dot_fill = (INK_LIGHT[0], INK_LIGHT[1], INK_LIGHT[2], 120)
+    for row in range(n_rows_dot):
+        for col in range(n_cols_dot):
+            cx = grid_x0 + col * col_spacing
+            cy = grid_y0 + row * row_spacing
+            td.ellipse(
+                [(cx - dot_r, cy - dot_r), (cx + dot_r, cy + dot_r)],
+                fill=dot_fill,
+            )
+
+    # A: 居中金色三角 (顶 32,10 · 左脚 14,50 · 右脚 50,50 · 交叉 22,34-42,34)
     gold_w = max(2, int(3.2 * scale))
     a_left = (icon_x + _s(14), icon_y + _s(50))
     a_top = (icon_x + _s(32), icon_y + _s(10))
@@ -156,11 +180,12 @@ def build_watermark_tile(is_dark_bg: bool, scale: float = 1.0, lang: str = "both
     td.line([a_top, a_right], fill=GOLD, width=gold_w)
     td.line([a_cross_l, a_cross_r], fill=GOLD, width=gold_w)
 
-    sq = max(3, int(3.2 * scale))
+    # 三顶点白色 highlight 方块 (vertex gems, 让 A 立体)
+    sq = max(3, int(3.4 * scale))
     for cx, cy in [a_left, a_top, a_right]:
         td.rectangle(
             [(cx - sq // 2, cy - sq // 2), (cx + sq // 2, cy + sq // 2)],
-            fill=GOLD,
+            fill=INK_LIGHT,
         )
 
     text_x = icon_x + icon + text_gap_x
