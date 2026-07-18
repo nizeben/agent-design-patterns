@@ -188,3 +188,12 @@ if __name__ == "__main__":
     base = Path(__file__).resolve().parent
     render(base / "matrix.png", clean=False, show_codes=True)
     render(base / "matrix-clean.png", clean=True, show_codes=True)
+
+    # 2026-07-04: 加 ADPS 水印
+    import sys
+    sys.path.insert(0, str(base))
+    from add_watermark import add_watermark
+    for name in ("matrix.png", "matrix-clean.png"):
+        p = base / name
+        add_watermark(str(p), str(p))
+        print(f"✓ Watermarked {name}")
