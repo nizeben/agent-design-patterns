@@ -282,8 +282,7 @@ def main() -> None:
 
 
 def bench_reversed():
-    import bench
-    return bench.REVERSED_IDS
+    return _lab37.bench.REVERSED_IDS
 
 
 if __name__ == "__main__":

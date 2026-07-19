@@ -69,7 +69,7 @@ ArtifactEnvelope = _bc.ArtifactEnvelope
 Finding = _bc.Finding
 TaskContract = _bc.TaskContract
 
-import bench  # noqa: E402  (path installed by lab36)
+bench = _lab36.bench
 
 MONTH = bench.MONTH
 CASH_LINE = 13_000_000.0
