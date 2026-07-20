@@ -366,6 +366,27 @@ def artifact_content_digest(artifact) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
 
+PROPOSAL_AUTHORITY_BY_ACTION = {
+    "payroll.disburse": "propose:payment",
+}
+
+
+def require_contract_proposal_authority(contract, action: str) -> str:
+    """Require the upstream task contract to authorize this action proposal."""
+    try:
+        required_scope = PROPOSAL_AUTHORITY_BY_ACTION[action]
+    except KeyError as error:
+        raise PermissionError(
+            f"no contract authority mapping exists for action {action!r}"
+        ) from error
+    if required_scope not in contract.authority_scope:
+        raise PermissionError(
+            "task contract cannot propose this action: "
+            f"requires {required_scope!r}"
+        )
+    return required_scope
+
+
 def release_proposal(
     *,
     version: int = 1,
@@ -375,6 +396,7 @@ def release_proposal(
 ) -> ActionProposal:
     contract, artifact, acceptance = reviewed_artifact()
     truth = artifact.payload
+    require_contract_proposal_authority(contract, "payroll.disburse")
     proposal = ActionProposal(
         proposal_id=f"payroll-disbursement::{MONTH}",
         version=version,
@@ -405,6 +427,7 @@ def release_department_proposal(department: str) -> ActionProposal:
     """Create one version-bound proposal from a real department ledger slice."""
     item = payroll_department_slices((department,))[0]
     contract, artifact, acceptance = reviewed_artifact()
+    require_contract_proposal_authority(contract, "payroll.disburse")
     slug = department.lower()
     proposal = ActionProposal(
         proposal_id=f"payroll-disbursement::{MONTH}::{slug}",
@@ -438,6 +461,7 @@ def release_limited_proposal(*, limit: int = 20) -> ActionProposal:
     """Create a real low-volume proposal for the LIMITED authority profile."""
     cohort = payroll_cohort(cohort_id="limited-canary", limit=limit)
     contract, artifact, acceptance = reviewed_artifact()
+    require_contract_proposal_authority(contract, "payroll.disburse")
     proposal = ActionProposal(
         proposal_id=f"payroll-disbursement::{MONTH}::{cohort.cohort_id}",
         version=1,

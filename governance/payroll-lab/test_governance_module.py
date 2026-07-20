@@ -47,6 +47,25 @@ def test_collaboration_artifact_is_real_and_acceptance_grants_no_authority() -> 
     assert contract.authority_scope == ("read:payroll", "propose:payment")
 
 
+def test_proposal_boundary_consumes_the_contract_authority_scope() -> None:
+    bench.prepare()
+    contract, _artifact, _acceptance = bench.reviewed_artifact()
+    read_only = replace(contract, authority_scope=("read:payroll",))
+
+    assert (
+        bench.require_contract_proposal_authority(
+            contract,
+            "payroll.disburse",
+        )
+        == "propose:payment"
+    )
+    with pytest.raises(PermissionError, match="requires 'propose:payment'"):
+        bench.require_contract_proposal_authority(
+            read_only,
+            "payroll.disburse",
+        )
+
+
 def test_naive_bridge_pays_with_zero_governance_receipts() -> None:
     result = run_naive()
 

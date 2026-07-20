@@ -16,6 +16,7 @@ sys.modules.pop("pattern", None)
 from pattern import (  # noqa: E402
     ActionProposal,
     AuthorityLevel,
+    DEFAULT_PROFILES,
     CommitmentError,
     ControlDecision,
     GovernanceReceipt,
@@ -494,3 +495,98 @@ def test_transition_history_keeps_promotion_and_incident_evidence() -> None:
 def test_policy_profiles_must_cover_the_complete_chain() -> None:
     with pytest.raises(ValueError, match="every authority level"):
         ProgressivePolicy(profiles=())
+
+
+def test_live_authority_profiles_must_expand_monotonically() -> None:
+    profiles = list(DEFAULT_PROFILES)
+    profiles[int(AuthorityLevel.AUTONOMOUS)] = replace(
+        profiles[int(AuthorityLevel.AUTONOMOUS)],
+        max_amount=500_000,
+    )
+
+    with pytest.raises(ValueError, match="grow monotonically"):
+        ProgressivePolicy(profiles=tuple(profiles))
+
+
+def test_higher_live_authority_must_retain_upstream_controls() -> None:
+    profiles = list(DEFAULT_PROFILES)
+    profiles[int(AuthorityLevel.AUTONOMOUS)] = replace(
+        profiles[int(AuthorityLevel.AUTONOMOUS)],
+        required_controls=("blast-radius",),
+    )
+
+    with pytest.raises(ValueError, match="retain upstream controls"):
+        ProgressivePolicy(profiles=tuple(profiles))
+
+
+def test_promotion_approval_rejects_backdating_and_summary_tampering() -> None:
+    progressive = progressive_control()
+    progressive.enroll("payroll-agent", at="2026-07-17T09:00:00+00:00")
+    record_successes(progressive, "payroll-agent")
+    request = progressive.request_promotion(
+        "payroll-agent",
+        at="2026-07-17T10:00:00+00:00",
+    )
+
+    with pytest.raises(CommitmentError, match="predates its request"):
+        progressive.approve_promotion(
+            request,
+            approver_id="governance-admin",
+            role="governance-owner",
+            at="2026-07-17T09:30:00+00:00",
+        )
+
+    with pytest.raises(CommitmentError, match="summary"):
+        progressive.approve_promotion(
+            replace(request, evidence_refs=("eval://substituted",)),
+            approver_id="governance-admin",
+            role="governance-owner",
+            at="2026-07-17T10:01:00+00:00",
+        )
+
+
+def test_demotion_cannot_precede_the_current_credential() -> None:
+    progressive, _credential = reach_level(AuthorityLevel.LIMITED)
+
+    with pytest.raises(CommitmentError, match="predates"):
+        progressive.demote(
+            "payroll-agent",
+            severity=IncidentSeverity.CRITICAL,
+            reason_code="duplicate_payment",
+            evidence_ref="incident://duplicate-payment",
+            decided_by="incident-monitor",
+            role="incident-responder",
+            at="2026-07-17T09:00:00+00:00",
+        )
+
+
+def test_authorization_rejects_expired_or_duplicate_parent_controls() -> None:
+    progressive, credential = reach_level(AuthorityLevel.LIMITED)
+    item = proposal()
+    approval = replace(
+        allowed_parent("approval-gate", item),
+        expires_at="2026-07-17T09:59:00+00:00",
+    )
+    containment = allowed_parent("blast-radius", item)
+
+    expired = progressive.authorize(
+        item,
+        credential,
+        at="2026-07-17T10:00:00+00:00",
+        parent_receipts=(approval, containment),
+    )
+    duplicated = progressive.authorize(
+        item,
+        credential,
+        at="2026-07-17T10:00:00+00:00",
+        parent_receipts=(containment, containment),
+    )
+
+    assert expired.decision is ControlDecision.DENIED
+    assert "required_control_missing" in {
+        finding.code for finding in expired.findings
+    }
+    assert duplicated.decision is ControlDecision.DENIED
+    assert "duplicate_parent_control" in {
+        finding.code for finding in duplicated.findings
+    }

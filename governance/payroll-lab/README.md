@@ -42,6 +42,12 @@ slices support each one-level promotion. Shadow execution remains non-live, a
 20-person canary fits LIMITED authority, the full payroll does not, and the
 variant records an immediate critical-incident demotion.
 
+The governed proposal boundary now consumes the upstream task contract's
+`authority_scope`: `payroll.disburse` may be proposed only when the contract
+contains `propose:payment`. That static delegation scope controls what the task
+may ask for; Progressive Commitment separately controls what the current agent
+credential may execute.
+
 Sibling modules are loaded through `governance_payroll_imports.py` under unique
 module names. This keeps teaching-friendly filenames such as `bench.py` without
 colliding with the payroll labs in other pattern modules during a full test run.

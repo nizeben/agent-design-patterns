@@ -26,6 +26,10 @@ OBSERVE -> RECOMMEND -> SHADOW -> LIMITED -> AUTONOMOUS
 `OBSERVE`，旧凭证随版本变化失效。升权者和降权者都由可信角色解析器校验，每次变化写成
 `AuthorityTransition`。
 
+策略构造还会验证这条链确实逐级开放：后一级不能丢掉前一级已有动作，真实执行的金额和人数
+上限不能缩小，`AUTONOMOUS` 也不能悄悄移除 `LIMITED` 已要求的上游控制。晋级批准与事故
+降权必须遵守当前凭证和申请的时间顺序。
+
 ## 公共接口
 
 | 对象 | 职责 |

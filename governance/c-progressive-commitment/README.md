@@ -31,6 +31,12 @@ Gate and Blast Radius receipts. A critical incident immediately demotes to
 `OBSERVE` and invalidates the old credential. Trusted role resolution governs
 both promotion and demotion. Every change becomes an `AuthorityTransition`.
 
+Policy construction also checks that the chain is genuinely progressive:
+higher levels retain lower-level actions, live authority limits cannot shrink,
+and `AUTONOMOUS` cannot silently remove controls already required by `LIMITED`.
+Promotion approval and demotion timestamps must follow the current credential
+and request timeline.
+
 ## Public interface
 
 | Object | Responsibility |

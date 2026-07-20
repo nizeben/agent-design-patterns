@@ -156,6 +156,29 @@ class ProgressivePolicy:
         levels = tuple(profile.level for profile in self.profiles)
         if levels != tuple(AuthorityLevel):
             raise ValueError("profiles must define every authority level in order")
+        for lower, higher in zip(self.profiles, self.profiles[1:]):
+            if not set(lower.allowed_actions).issubset(higher.allowed_actions):
+                raise ValueError(
+                    "higher authority levels must retain lower-level actions"
+                )
+            if lower.live_effects and not higher.live_effects:
+                raise ValueError(
+                    "higher authority levels must not revoke live-effect capability"
+                )
+            if lower.live_effects and higher.live_effects:
+                if (
+                    higher.max_amount < lower.max_amount
+                    or higher.max_subjects < lower.max_subjects
+                ):
+                    raise ValueError(
+                        "live authority limits must grow monotonically"
+                    )
+                if not set(lower.required_controls).issubset(
+                    higher.required_controls
+                ):
+                    raise ValueError(
+                        "higher live authority must retain upstream controls"
+                    )
 
     @property
     def ref(self) -> PolicyRef:
@@ -396,6 +419,11 @@ class ProgressiveCommitment:
     def request_promotion(self, agent_id: str, *, at: str) -> PromotionRequest:
         with self._lock:
             credential = self._current(agent_id)
+            requested_at = _instant(at)
+            if requested_at < _instant(credential.issued_at):
+                raise CommitmentError(
+                    "promotion request predates the current authority version"
+                )
             if credential.level is AuthorityLevel.AUTONOMOUS:
                 raise CommitmentError("agent is already at the highest authority level")
             window = self.windows[agent_id]
@@ -435,6 +463,14 @@ class ProgressiveCommitment:
     ) -> AuthorityCredential:
         with self._lock:
             current = self._current(request.agent_id)
+            approval_at = _instant(at)
+            requested_at = _instant(request.requested_at)
+            if approval_at < requested_at:
+                raise CommitmentError("promotion approval predates its request")
+            if requested_at < _instant(current.issued_at):
+                raise CommitmentError(
+                    "promotion request predates the current authority version"
+                )
             if role != self.policy.promotion_role:
                 raise CommitmentError("approver does not hold the promotion role")
             if approver_id == request.agent_id:
@@ -459,6 +495,28 @@ class ProgressiveCommitment:
             window = self.windows[request.agent_id]
             if request.evidence_digest != window.digest:
                 raise CommitmentError("promotion request belongs to a stale evidence window")
+            expected_refs = tuple(
+                outcome.evidence_ref for outcome in window.outcomes
+            )
+            if (
+                request.runs != window.runs
+                or request.success_rate != window.success_rate
+                or request.blockers != window.blockers
+                or request.evidence_refs != expected_refs
+            ):
+                raise CommitmentError(
+                    "promotion request summary does not match its evidence window"
+                )
+            expected_request_id = (
+                f"promotion::{request.agent_id}::"
+                f"{current.level.name.lower()}-to-"
+                f"{AuthorityLevel(current.level + 1).name.lower()}::"
+                f"{window.digest}"
+            )
+            if request.request_id != expected_request_id:
+                raise CommitmentError(
+                    "promotion request identity does not match its evidence window"
+                )
             failures = self._promotion_failures(window, at=at)
             if failures:
                 raise CommitmentError(
@@ -509,7 +567,16 @@ class ProgressiveCommitment:
     ) -> GovernanceReceipt:
         with self._lock:
             current = self._current(credential.agent_id)
+            decision_at = _instant(at)
             findings: list[GovernanceFinding] = []
+            if decision_at < _instant(current.issued_at):
+                findings.append(
+                    self._finding(
+                        "credential_not_yet_valid",
+                        "authorization predates the current authority credential",
+                        f"authority://{current.credential_id}",
+                    )
+                )
             if credential != current:
                 findings.append(
                     self._finding(
@@ -567,6 +634,14 @@ class ProgressiveCommitment:
             receipt_by_control = {
                 receipt.control: receipt for receipt in parent_receipts
             }
+            if len(receipt_by_control) != len(parent_receipts):
+                findings.append(
+                    self._finding(
+                        "duplicate_parent_control",
+                        "multiple parent receipts claim the same control",
+                        f"proposal://{proposal.digest}",
+                    )
+                )
             if live:
                 for control in profile.required_controls:
                     parent = receipt_by_control.get(control)
@@ -574,6 +649,11 @@ class ProgressiveCommitment:
                         parent is None
                         or parent.decision is not ControlDecision.ALLOWED
                         or parent.proposal_digest != proposal.digest
+                        or _instant(parent.issued_at) > decision_at
+                        or (
+                            parent.expires_at is not None
+                            and _instant(parent.expires_at) < decision_at
+                        )
                     ):
                         findings.append(
                             self._finding(
@@ -628,7 +708,11 @@ class ProgressiveCommitment:
                 raise ValueError(
                     "demotion must carry a reason, evidence, and decision owner"
                 )
-            _instant(at)
+            decision_at = _instant(at)
+            if decision_at < _instant(current.issued_at):
+                raise CommitmentError(
+                    "demotion predates the current authority version"
+                )
             if role != self.policy.demotion_role:
                 raise CommitmentError("decision owner does not hold the demotion role")
             if self._role_resolver is None:
